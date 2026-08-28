@@ -4,10 +4,20 @@
 // loot-radar frontend -- vanilla JS, no build step (same philosophy as
 // zBots' own frontend: fast to serve, nothing to break in a build
 // pipeline on a tight deadline). API_BASE is relative -- nginx proxies
-// /api/* to the backend, same pattern as zBots' /bots-api/ prefix.
+// /api/* to the backend (shared across every event, unlike the static
+// frontend files -- see nginx.conf's own comment on why), same pattern as
+// zBots' /bots-api/ prefix.
+//
+// EVENT_ID scopes every list/create call to this one event now that the
+// backend serves more than one (see backend/db.py's event_id column) --
+// this file is the Gamescom 2026 event experience specifically, mounted
+// at /gamescom2026/ by the portal at /. A future event copies this whole
+// directory and changes only this one constant plus its own halls.js/
+// hallplan data -- nothing else in this file is Gamescom-specific.
 // ---------------------------------------------------------------------------
 
 const API_BASE = "/api";
+const EVENT_ID = "gamescom2026";
 
 function deviceId() {
   let id = localStorage.getItem("lr_device_id");
@@ -19,7 +29,8 @@ function deviceId() {
 }
 
 async function apiGet(path) {
-  const res = await fetch(API_BASE + path);
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(`${API_BASE}${path}${sep}event_id=${EVENT_ID}`);
   if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
   return res.json();
 }
@@ -38,7 +49,7 @@ async function apiPostJson(path, body) {
 }
 
 async function apiCreateLoot(fields, photoBlob) {
-  const qs = new URLSearchParams(fields).toString();
+  const qs = new URLSearchParams({ ...fields, event_id: EVENT_ID }).toString();
   const form = new FormData();
   if (photoBlob) form.append("photo", photoBlob, "loot.jpg");
   const res = await fetch(`${API_BASE}/loot?${qs}`, {
@@ -301,7 +312,7 @@ let currentHallLevel = null; // {hallId, file, plan, margin, extent} while a rea
 
 async function loadHallplanIndex() {
   if (INDEX_CACHE) return INDEX_CACHE;
-  const res = await fetch("/hallplan/index.json");
+  const res = await fetch("hallplan/index.json");
   const data = await res.json();
   const byFile = {};
   for (const h of data.halls) byFile[h.id] = h;
@@ -311,7 +322,7 @@ async function loadHallplanIndex() {
 
 async function loadHallPlanFile(fileId) {
   if (hallPlanCache.has(fileId)) return hallPlanCache.get(fileId);
-  const res = await fetch(`/hallplan/hall-${fileId}.json`);
+  const res = await fetch(`hallplan/hall-${fileId}.json`);
   if (!res.ok) throw new Error(`plan fetch failed for ${fileId}`);
   const data = await res.json();
   hallPlanCache.set(fileId, data);
@@ -320,7 +331,7 @@ async function loadHallPlanFile(fileId) {
 
 async function loadOutline() {
   if (outlineCache) return outlineCache;
-  if (!outlinePromise) outlinePromise = fetch("/hallplan/outline.json").then((r) => r.json());
+  if (!outlinePromise) outlinePromise = fetch("hallplan/outline.json").then((r) => r.json());
   outlineCache = await outlinePromise;
   return outlineCache;
 }
@@ -375,6 +386,65 @@ async function renderRealHallPlan(hallId, fileId) {
       onBoothTap(stand, shifted, extent);
     });
     svg.appendChild(poly);
+    appendStandLabels(svg, stand, shifted, named);
+  }
+}
+
+// Real gap found live: booth polygons rendered with zero visible text --
+// the map read as a wall of blank colored rectangles until someone
+// discovered tapping opened a detail panel. Company/booth number now
+// render directly on the polygon so the map is informative at a glance,
+// not just on tap.
+function boundsOf(points) {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
+// Truncates to roughly however many characters fit at this font size
+// instead of relying on SVG textLength compression, which either leaves
+// long names illegibly squished or (if only applied when text overflows)
+// needs the same width estimate anyway -- doing the estimate once, up
+// front, and truncating the STRING is simpler and reads better.
+function fitLabelText(text, availableWidthUnits, fontSizeUnits) {
+  const approxCharWidth = fontSizeUnits * 0.58;
+  const maxChars = Math.max(3, Math.floor(availableWidthUnits / approxCharWidth));
+  if (text.length <= maxChars) return text;
+  return text.slice(0, Math.max(1, maxChars - 1)) + "…";
+}
+
+function appendStandLabels(svg, stand, shifted, named) {
+  const b = boundsOf(shifted);
+  const boxW = b.maxX - b.minX;
+  const boxH = b.maxY - b.minY;
+  // Too small to hold legible text at all -- skip rather than draw
+  // overlapping unreadable glyphs on the tiniest slivers some real stands
+  // are (confirmed live: a handful of booths are under 2m in one
+  // dimension, e.g. narrow shared-wall stands).
+  if (Math.min(boxW, boxH) < 4) return;
+
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
+  const availableW = boxW * 0.92;
+  const boothFont = Math.max(2.2, Math.min(4.6, Math.min(boxW, boxH) * 0.26));
+
+  const boothLabel = svgEl("text", {
+    x: cx, y: named ? cy - boothFont * 0.55 : cy,
+    class: "hallplan-stand-label",
+    style: `font-size:${boothFont}px`,
+  });
+  boothLabel.textContent = fitLabelText(stand.nr, availableW, boothFont);
+  svg.appendChild(boothLabel);
+
+  if (named && boxH > 9) {
+    const companyFont = Math.max(1.9, boothFont * 0.68);
+    const companyLabel = svgEl("text", {
+      x: cx, y: cy + boothFont * 0.7,
+      class: "hallplan-stand-company",
+      style: `font-size:${companyFont}px`,
+    });
+    companyLabel.textContent = fitLabelText(stand.names[0], availableW, companyFont);
+    svg.appendChild(companyLabel);
   }
 }
 
@@ -956,15 +1026,26 @@ function applyUpdate(entry) {
 }
 
 function connectEvents() {
-  const es = new EventSource(`${API_BASE}/events`);
+  // The SSE stream is shared across every event on the backend (one
+  // process, one broadcaster -- see main.py's own _subscribers set); every
+  // payload carries its own event_id, and a client filters out anything
+  // that isn't for the event it's actually showing rather than relying on
+  // the server to split subscribers by event. Simpler and correct even
+  // before a second event exists to actually need the filter.
+  const es = new EventSource(`${API_BASE}/events?event_id=${EVENT_ID}`);
   es.addEventListener("loot.created", (e) => {
     const entry = JSON.parse(e.data);
+    if (entry.event_id && entry.event_id !== EVENT_ID) return;
     lootById.set(entry.id, entry);
     if (openHallId === entry.hall_id) renderHallPins(entry.id);
     renderVenueMap();
     toast(`New loot: ${entry.company_name}`);
   });
-  es.addEventListener("loot.updated", (e) => applyUpdate(JSON.parse(e.data)));
+  es.addEventListener("loot.updated", (e) => {
+    const entry = JSON.parse(e.data);
+    if (entry.event_id && entry.event_id !== EVENT_ID) return;
+    applyUpdate(entry);
+  });
   es.onerror = () => {
     // EventSource auto-reconnects on its own; nothing to do here beyond
     // not crashing the rest of the app if the venue wifi hiccups.

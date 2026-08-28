@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import db
+from events_registry import VALID_EVENT_IDS, EVENT_HALL_IDS, public_catalog
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("loot-radar")
@@ -51,6 +52,12 @@ def _device_id(request: Request) -> str:
     return device_id
 
 
+def _valid_event(event_id: str) -> str:
+    if event_id not in VALID_EVENT_IDS:
+        raise HTTPException(400, "unknown event_id")
+    return event_id
+
+
 # ---------------------------------------------------------------------------
 # Platform contract endpoints (see get_platform_contract's required_endpoints)
 # ---------------------------------------------------------------------------
@@ -74,6 +81,15 @@ async def ready():
 @app.get("/version")
 async def version():
     return {"sha": BUILD_SHA, "built": BUILD_TIME}
+
+
+@app.get("/event-catalog")
+async def event_catalog():
+    # Named distinctly from /events (the SSE live-update stream, already
+    # taken) -- what the portal at frontend/portal/ fetches to render its
+    # event cards. See events_registry.py's own module docstring for why
+    # this is a plain in-code dict rather than a database table.
+    return public_catalog()
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +119,14 @@ async def _broadcast(event: str, data: dict) -> None:
 
 
 @app.get("/events")
-async def events():
+async def events(event_id: str = "gamescom2026"):
+    # event_id is accepted for a future server-side subscriber split (see
+    # frontend/events/gamescom2026/app.js's own comment on why filtering
+    # happens client-side today instead: one broadcaster, every payload
+    # carries its own event_id, and a client with only one event open just
+    # ignores anything not addressed to it -- correct now, and doesn't need
+    # touching the moment a second event's clients start connecting too).
+    _valid_event(event_id)
     queue: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
     _subscribers.add(queue)
 
@@ -128,8 +151,9 @@ async def events():
 
 
 @app.get("/loot")
-async def list_loot():
-    return await db.list_active_loot()
+async def list_loot(event_id: str = "gamescom2026"):
+    _valid_event(event_id)
+    return await db.list_active_loot(event_id)
 
 
 @app.post("/loot")
@@ -141,10 +165,12 @@ async def create_loot(
     items: str,
     pin_x: float,
     pin_y: float,
+    event_id: str = "gamescom2026",
     submitted_by: Optional[str] = None,
     photo: Optional[UploadFile] = None,
 ):
-    if hall_id not in db.VALID_HALL_IDS:
+    _valid_event(event_id)
+    if hall_id not in EVENT_HALL_IDS[event_id]:
         raise HTTPException(400, "unknown hall_id")
     if not (0 <= pin_x <= 1 and 0 <= pin_y <= 1):
         raise HTTPException(400, "pin_x/pin_y must be normalized 0..1")
@@ -167,6 +193,7 @@ async def create_loot(
         photo_mime = photo.content_type or "image/jpeg"
 
     entry = await db.create_loot(
+        event_id=event_id,
         hall_id=hall_id,
         booth_no=booth_no,
         company_name=company_name,
@@ -235,11 +262,12 @@ async def rate_loot(loot_id: int, body: RatingIn, request: Request):
 
 
 @app.get("/leaderboard")
-async def leaderboard():
+async def leaderboard(event_id: str = "gamescom2026"):
+    _valid_event(event_id)
     top_loot, top_halls, top_finders = await asyncio.gather(
-        db.leaderboard_top_loot(),
-        db.leaderboard_top_halls(),
-        db.leaderboard_top_finders(),
+        db.leaderboard_top_loot(event_id),
+        db.leaderboard_top_halls(event_id),
+        db.leaderboard_top_finders(event_id),
     )
     return {"top_loot": top_loot, "top_halls": top_halls, "top_finders": top_finders}
 

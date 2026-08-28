@@ -321,6 +321,14 @@ button { font-family: inherit; }
 }
 .hallplan-stand.named { fill: rgba(155, 91, 255, 0.14); stroke: rgba(155, 91, 255, 0.35); }
 .hallplan-stand:active { fill: rgba(255, 46, 203, 0.35); }
+.hallplan-stand-label, .hallplan-stand-company {
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  font-family: ui-monospace, monospace;
+}
+.hallplan-stand-label { fill: rgba(255,255,255,0.55); font-weight: 600; }
+.hallplan-stand-company { fill: rgba(255,255,255,0.88); font-weight: 700; font-family: var(--font, inherit); }
 
 #hall-canvas-inner {
   position: absolute; inset: 0;

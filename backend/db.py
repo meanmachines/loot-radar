@@ -19,13 +19,11 @@ import asyncpg
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-# Hall ids are a small, fixed set (see frontend/halls.js for the matching
-# geometry/display data) -- validated here so a malformed hall_id can never
-# reach the database, without needing a halls table or a round trip just to
-# check membership.
-VALID_HALL_IDS = {
-    "confex", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10", "h11",
-}
+# One backend, one Postgres, many events -- see the portal at
+# frontend/portal/ and events_registry.py's own module docstring for the
+# rest of this design. hall_id/event_id validation against that registry
+# happens in main.py, right before it ever calls into this module -- this
+# layer just trusts its caller and does the query.
 
 # Bytes, not pixels -- the client resizes/compresses before upload (see
 # app.js's own comment on why: no server-side image library needed at all
@@ -38,6 +36,7 @@ _pool: Optional[asyncpg.Pool] = None
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS loot_entries (
     id SERIAL PRIMARY KEY,
+    event_id TEXT NOT NULL DEFAULT 'gamescom2026',
     hall_id TEXT NOT NULL,
     booth_no TEXT NOT NULL,
     company_name TEXT NOT NULL,
@@ -56,8 +55,18 @@ CREATE TABLE IF NOT EXISTS loot_entries (
     status TEXT NOT NULL DEFAULT 'active',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Additive migration for the already-live table (this app shipped and had
+-- real traffic before events_registry.py's multi-event model existed) --
+-- ADD COLUMN IF NOT EXISTS with a DEFAULT backfills every existing row,
+-- so every loot entry reported before this migration correctly becomes
+-- gamescom2026's own data rather than orphaned or dropped.
+ALTER TABLE loot_entries ADD COLUMN IF NOT EXISTS event_id TEXT NOT NULL DEFAULT 'gamescom2026';
 CREATE INDEX IF NOT EXISTS loot_entries_hall_idx ON loot_entries(hall_id);
-CREATE INDEX IF NOT EXISTS loot_entries_status_idx ON loot_entries(status);
+-- Composite, not two separate single-column indexes -- every hot read
+-- path (list_active_loot, all three leaderboard queries) filters on
+-- exactly this pair together, and a composite index lets Postgres satisfy
+-- that filter in one index scan instead of a bitmap AND across two.
+CREATE INDEX IF NOT EXISTS loot_entries_event_status_idx ON loot_entries(event_id, status);
 
 CREATE TABLE IF NOT EXISTS loot_votes (
     id SERIAL PRIMARY KEY,
@@ -83,7 +92,7 @@ CREATE TABLE IF NOT EXISTS loot_ratings (
 # queries would otherwise drag full image payloads over the wire for every
 # entry on every poll.
 _LIST_COLUMNS = """
-    id, hall_id, booth_no, company_name, items, pin_x, pin_y,
+    id, event_id, hall_id, booth_no, company_name, items, pin_x, pin_y,
     (photo IS NOT NULL) AS has_photo, submitted_by,
     validity_score, confirm_count, dispute_count,
     quality_sum, quality_count, status,
@@ -102,7 +111,15 @@ _LIST_COLUMNS = """
 
 async def init_pool() -> None:
     global _pool
-    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    # max_size=25, not the original 10 -- a viral traffic spike means many
+    # near-simultaneous initial page loads (each one GET /loot + 3
+    # leaderboard queries) landing in the same second; 10 connections
+    # queued up fast under that burst even though sustained load is tiny
+    # (SSE carries live updates after the initial load, not polling). The
+    # read cache below cuts real query volume far more than pool size
+    # alone could, but the pool still needs enough headroom for the
+    # concurrent MISSES a fresh cache window allows before it refills.
+    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=25)
     async with _pool.acquire() as conn:
         await conn.execute(SCHEMA)
 
@@ -133,16 +150,75 @@ def _row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
     return d
 
 
-async def list_active_loot() -> list[dict[str, Any]]:
+class TTLCache:
+    """Small per-key TTL cache -- single process only (see this module's
+    own docstring, same assumption as RateLimiter below). The real reason
+    this exists: a traffic spike means many near-simultaneous INITIAL page
+    loads (each one a GET /loot plus three leaderboard queries) landing in
+    the same second or two, not sustained high query-per-second load (live
+    updates after that first load ride the SSE stream, not polling) -- a
+    short cache turns "thousands of requests hit Postgres in one burst"
+    into "the first request in each TTL window hits Postgres, everyone
+    else in that window reads memory," which is the actual fix a bigger
+    connection pool alone can't provide.
+    """
+
+    def __init__(self, ttl_seconds: float):
+        self.ttl = ttl_seconds
+        self._store: dict[Any, tuple[float, Any]] = {}
+
+    def get(self, key: Any) -> Any:
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        fetched_at, value = entry
+        if time.monotonic() - fetched_at > self.ttl:
+            return None
+        return value
+
+    def set(self, key: Any, value: Any) -> None:
+        self._store[key] = (time.monotonic(), value)
+
+    def clear(self) -> None:
+        self._store.clear()
+
+
+# Loot list: short TTL -- someone who just reported loot wants to see it
+# show up fast even on a fresh page load (not just via their own optimistic
+# local update). Leaderboard: longer TTL -- rankings shifting by a few
+# seconds' delay is imperceptible, and it's the more expensive read (three
+# aggregate queries, not one plain select).
+_loot_cache = TTLCache(ttl_seconds=2.0)
+_leaderboard_cache = TTLCache(ttl_seconds=5.0)
+
+
+def _invalidate_read_caches() -> None:
+    # Cleared wholesale (every event, not just the one that changed) --
+    # deliberately simple: the catalog is a handful of events at most (see
+    # events_registry.py), so there's no real cost to clearing all of it
+    # versus the complexity of tracing a loot_id back to its event_id
+    # first just to invalidate one key.
+    _loot_cache.clear()
+    _leaderboard_cache.clear()
+
+
+async def list_active_loot(event_id: str) -> list[dict[str, Any]]:
+    cached = _loot_cache.get(event_id)
+    if cached is not None:
+        return cached
     async with pool().acquire() as conn:
         rows = await conn.fetch(
-            f"SELECT {_LIST_COLUMNS} FROM loot_entries WHERE status = 'active' ORDER BY created_at DESC"
+            f"SELECT {_LIST_COLUMNS} FROM loot_entries WHERE status = 'active' AND event_id = $1 ORDER BY created_at DESC",
+            event_id,
         )
-    return [_row_to_dict(r) for r in rows]
+    result = [_row_to_dict(r) for r in rows]
+    _loot_cache.set(event_id, result)
+    return result
 
 
 async def create_loot(
     *,
+    event_id: str,
     hall_id: str,
     booth_no: str,
     company_name: str,
@@ -158,14 +234,15 @@ async def create_loot(
         row = await conn.fetchrow(
             f"""
             INSERT INTO loot_entries
-                (hall_id, booth_no, company_name, items, pin_x, pin_y,
+                (event_id, hall_id, booth_no, company_name, items, pin_x, pin_y,
                  submitted_by, device_id, photo, photo_mime)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             RETURNING {_LIST_COLUMNS}
             """,
-            hall_id, booth_no, company_name, items, pin_x, pin_y,
+            event_id, hall_id, booth_no, company_name, items, pin_x, pin_y,
             submitted_by, device_id, photo, photo_mime,
         )
+    _invalidate_read_caches()
     return _row_to_dict(row)
 
 
@@ -244,6 +321,7 @@ async def cast_vote(loot_id: int, device_id: str, vote_type: str) -> Optional[di
                 """,
                 loot_id, confirm_count, dispute_count, validity_score, status,
             )
+            _invalidate_read_caches()
             return await _fetch_one(conn, loot_id)
 
 
@@ -268,6 +346,7 @@ async def cast_rating(loot_id: int, device_id: str, stars: int) -> Optional[dict
                 "UPDATE loot_entries SET quality_sum=$2, quality_count=$3 WHERE id=$1",
                 loot_id, agg["s"], agg["c"],
             )
+            _invalidate_read_caches()
             return await _fetch_one(conn, loot_id)
 
 
@@ -276,52 +355,70 @@ async def _fetch_one(conn: asyncpg.Connection, loot_id: int) -> Optional[dict[st
     return _row_to_dict(row) if row else None
 
 
-async def leaderboard_top_loot(limit: int = 20) -> list[dict[str, Any]]:
+async def leaderboard_top_loot(event_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    cache_key = ("top_loot", event_id, limit)
+    cached = _leaderboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
     async with pool().acquire() as conn:
         rows = await conn.fetch(
             f"""
             SELECT {_LIST_COLUMNS} FROM loot_entries
-            WHERE status='active' AND quality_count >= 2
+            WHERE status='active' AND event_id=$1 AND quality_count >= 2
             ORDER BY (quality_sum::float / NULLIF(quality_count,0)) DESC, quality_count DESC
-            LIMIT $1
+            LIMIT $2
             """,
-            limit,
+            event_id, limit,
         )
-    return [_row_to_dict(r) for r in rows]
+    result = [_row_to_dict(r) for r in rows]
+    _leaderboard_cache.set(cache_key, result)
+    return result
 
 
-async def leaderboard_top_halls(limit: int = 11) -> list[dict[str, Any]]:
+async def leaderboard_top_halls(event_id: str, limit: int = 11) -> list[dict[str, Any]]:
+    cache_key = ("top_halls", event_id, limit)
+    cached = _leaderboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
     async with pool().acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT hall_id, count(*) AS loot_count,
                    coalesce(avg(quality_sum::float / NULLIF(quality_count,0)), 0) AS avg_quality
             FROM loot_entries
-            WHERE status='active'
+            WHERE status='active' AND event_id=$1
             GROUP BY hall_id
             ORDER BY loot_count DESC
-            LIMIT $1
+            LIMIT $2
             """,
-            limit,
+            event_id, limit,
         )
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    _leaderboard_cache.set(cache_key, result)
+    return result
 
 
-async def leaderboard_top_finders(limit: int = 20) -> list[dict[str, Any]]:
+async def leaderboard_top_finders(event_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    cache_key = ("top_finders", event_id, limit)
+    cached = _leaderboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
     async with pool().acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT coalesce(nullif(submitted_by, ''), 'Anonymous scout') AS name,
                    count(*) AS loot_count
             FROM loot_entries
-            WHERE status='active'
+            WHERE status='active' AND event_id=$1
             GROUP BY 1
             ORDER BY loot_count DESC
-            LIMIT $1
+            LIMIT $2
             """,
-            limit,
+            event_id, limit,
         )
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    _leaderboard_cache.set(cache_key, result)
+    return result
 
 
 class RateLimiter:
