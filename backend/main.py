@@ -85,7 +85,13 @@ _subscribers: set[asyncio.Queue] = set()
 
 
 async def _broadcast(event: str, data: dict) -> None:
-    payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    # default=str: defensive backstop, not the primary fix -- see db.py's
+    # own comment on the real bug this guards against (a Postgres numeric
+    # column reaching this plain json.dumps call as a non-serializable
+    # Decimal). FastAPI's own response encoder tolerates that; stdlib
+    # json.dumps does not, and this is the one path in the app that calls
+    # it directly instead of going through FastAPI.
+    payload = f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
     dead = []
     for q in _subscribers:
         try:

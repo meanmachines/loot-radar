@@ -87,8 +87,17 @@ _LIST_COLUMNS = """
     (photo IS NOT NULL) AS has_photo, submitted_by,
     validity_score, confirm_count, dispute_count,
     quality_sum, quality_count, status,
-    extract(epoch FROM created_at) AS created_at
+    extract(epoch FROM created_at)::float8 AS created_at
 """
+# Real bug found live: EXTRACT(EPOCH FROM ...) returns Postgres `numeric`,
+# which asyncpg maps to Python Decimal, not float -- FastAPI's own response
+# encoder tolerates that silently (jsonable_encoder converts Decimal->float),
+# but main.py's _broadcast() uses plain stdlib json.dumps for the SSE
+# stream, which has no Decimal support and raised a 500 on every single
+# loot creation. The ::float8 cast here makes asyncpg return a real float
+# at the query level, so every consumer gets the same plain-float value
+# instead of relying on FastAPI's encoder to paper over a type mismatch
+# in one path but not another.
 
 
 async def init_pool() -> None:
