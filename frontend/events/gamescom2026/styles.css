@@ -243,7 +243,7 @@ button { font-family: inherit; }
 
 /* ------------------------------------------------------------ hall sheet */
 
-#hall-sheet, #booth-sheet, #loot-sheet, #add-sheet {
+#hall-sheet, #booth-sheet, #loot-sheet, #add-sheet, #account-sheet {
   position: absolute;
   inset: 0;
   z-index: 40;
@@ -253,7 +253,7 @@ button { font-family: inherit; }
   transform: translateY(100%);
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
-#hall-sheet.open, #booth-sheet.open, #loot-sheet.open, #add-sheet.open {
+#hall-sheet.open, #booth-sheet.open, #loot-sheet.open, #add-sheet.open, #account-sheet.open {
   display: flex;
   transform: translateY(0);
 }
@@ -611,6 +611,60 @@ button { font-family: inherit; }
   font-size: 0.68rem; color: var(--text-muted);
   background: var(--glass); border: 1px solid var(--border);
   padding: 0.2rem 0.55rem; border-radius: 999px; margin-bottom: 0.9rem;
+}
+
+/* --------------------------------------------------------------- account */
+
+.signin-intro {
+  text-align: center;
+  padding: 1.5rem 0.5rem 2rem;
+}
+.signin-intro svg { width: 40px; height: 40px; color: var(--text-dim); margin-bottom: 0.9rem; }
+.signin-intro h3 { margin: 0 0 0.4rem; font-size: 1.05rem; font-weight: 800; }
+.signin-intro p { margin: 0; font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; }
+
+.oauth-btn {
+  width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 0.75rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 0.7rem;
+}
+.oauth-btn:active { transform: scale(0.98); }
+.oauth-btn svg { width: 19px; height: 19px; flex-shrink: 0; }
+.oauth-btn.unavailable { opacity: 0.4; pointer-events: none; }
+.oauth-unavailable-note { text-align: center; font-size: 0.7rem; color: var(--text-dim); margin-top: 0.6rem; }
+
+.profile-header {
+  display: flex; align-items: center; gap: 0.85rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.profile-avatar {
+  width: 52px; height: 52px; border-radius: 50%;
+  object-fit: cover;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.profile-avatar-fallback {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim);
+}
+.profile-avatar-fallback svg { width: 24px; height: 24px; }
+.profile-name { font-weight: 800; font-size: 1rem; }
+.profile-email { font-size: 0.76rem; color: var(--text-muted); }
+
+.my-loot-section-title {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 0.6rem;
 }
 
 /* --------------------------------------------------------------- bottom nav */

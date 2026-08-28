@@ -34,6 +34,17 @@ MAX_PHOTO_BYTES = 400_000
 _pool: Optional[asyncpg.Pool] = None
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    email TEXT,
+    display_name TEXT,
+    avatar_url TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(provider, provider_user_id)
+);
+
 CREATE TABLE IF NOT EXISTS loot_entries (
     id SERIAL PRIMARY KEY,
     event_id TEXT NOT NULL DEFAULT 'gamescom2026',
@@ -47,6 +58,7 @@ CREATE TABLE IF NOT EXISTS loot_entries (
     photo_mime TEXT,
     submitted_by TEXT,
     device_id TEXT NOT NULL,
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,
     validity_score INT NOT NULL DEFAULT 0,
     confirm_count INT NOT NULL DEFAULT 0,
     dispute_count INT NOT NULL DEFAULT 0,
@@ -55,13 +67,18 @@ CREATE TABLE IF NOT EXISTS loot_entries (
     status TEXT NOT NULL DEFAULT 'active',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Additive migration for the already-live table (this app shipped and had
--- real traffic before events_registry.py's multi-event model existed) --
--- ADD COLUMN IF NOT EXISTS with a DEFAULT backfills every existing row,
--- so every loot entry reported before this migration correctly becomes
--- gamescom2026's own data rather than orphaned or dropped.
+-- Additive migrations for the already-live table (this app shipped and had
+-- real traffic before events_registry.py's multi-event model AND accounts
+-- existed) -- ADD COLUMN IF NOT EXISTS with a DEFAULT/NULL backfills every
+-- existing row, so nothing reported before either migration is orphaned or
+-- dropped. user_id is nullable and stays that way -- an anonymous
+-- submission is still a fully valid one, just not yet linked to anyone
+-- (see auth.py's own note on how sign-in retroactively links past
+-- device_id activity to the account that just signed in).
 ALTER TABLE loot_entries ADD COLUMN IF NOT EXISTS event_id TEXT NOT NULL DEFAULT 'gamescom2026';
+ALTER TABLE loot_entries ADD COLUMN IF NOT EXISTS user_id INT REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS loot_entries_hall_idx ON loot_entries(hall_id);
+CREATE INDEX IF NOT EXISTS loot_entries_user_idx ON loot_entries(user_id);
 -- Composite, not two separate single-column indexes -- every hot read
 -- path (list_active_loot, all three leaderboard queries) filters on
 -- exactly this pair together, and a composite index lets Postgres satisfy
@@ -93,7 +110,7 @@ CREATE TABLE IF NOT EXISTS loot_ratings (
 # entry on every poll.
 _LIST_COLUMNS = """
     id, event_id, hall_id, booth_no, company_name, items, pin_x, pin_y,
-    (photo IS NOT NULL) AS has_photo, submitted_by,
+    (photo IS NOT NULL) AS has_photo, submitted_by, user_id,
     validity_score, confirm_count, dispute_count,
     quality_sum, quality_count, status,
     extract(epoch FROM created_at)::float8 AS created_at
@@ -229,21 +246,97 @@ async def create_loot(
     device_id: str,
     photo: Optional[bytes],
     photo_mime: Optional[str],
+    user_id: Optional[int] = None,
 ) -> dict[str, Any]:
     async with pool().acquire() as conn:
         row = await conn.fetchrow(
             f"""
             INSERT INTO loot_entries
                 (event_id, hall_id, booth_no, company_name, items, pin_x, pin_y,
-                 submitted_by, device_id, photo, photo_mime)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                 submitted_by, device_id, photo, photo_mime, user_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             RETURNING {_LIST_COLUMNS}
             """,
             event_id, hall_id, booth_no, company_name, items, pin_x, pin_y,
-            submitted_by, device_id, photo, photo_mime,
+            submitted_by, device_id, photo, photo_mime, user_id,
         )
     _invalidate_read_caches()
     return _row_to_dict(row)
+
+
+# ---------------------------------------------------------------------------
+# Accounts -- see auth.py for the actual OAuth flow (authorize/callback,
+# session cookie issuance). This module only owns the storage: upsert on
+# every successful login (so a returning user's profile picture/name stays
+# fresh, not just their identity), and the retroactive link from an
+# anonymous device_id's past activity to the account that just signed in
+# with it.
+# ---------------------------------------------------------------------------
+
+
+async def upsert_user(
+    *, provider: str, provider_user_id: str, email: Optional[str], display_name: Optional[str], avatar_url: Optional[str]
+) -> dict[str, Any]:
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO users (provider, provider_user_id, email, display_name, avatar_url)
+            VALUES ($1,$2,$3,$4,$5)
+            ON CONFLICT (provider, provider_user_id)
+            DO UPDATE SET email=EXCLUDED.email, display_name=EXCLUDED.display_name, avatar_url=EXCLUDED.avatar_url
+            RETURNING id, provider, email, display_name, avatar_url, extract(epoch FROM created_at)::float8 AS created_at
+            """,
+            provider, provider_user_id, email, display_name, avatar_url,
+        )
+    return dict(row)
+
+
+async def get_user(user_id: int) -> Optional[dict[str, Any]]:
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, provider, email, display_name, avatar_url, extract(epoch FROM created_at)::float8 AS created_at FROM users WHERE id=$1",
+            user_id,
+        )
+    return dict(row) if row else None
+
+
+async def link_device_to_user(device_id: str, user_id: int) -> int:
+    """Retroactively claims every anonymous loot entry this device already
+    submitted (across every event -- accounts are platform-wide, see
+    events_registry.py's own module docstring) that isn't linked to some
+    OTHER account already. Returns how many rows got linked, purely for
+    logging -- callers don't need to branch on it.
+    """
+    async with pool().acquire() as conn:
+        result = await conn.execute(
+            "UPDATE loot_entries SET user_id=$1 WHERE device_id=$2 AND user_id IS NULL", user_id, device_id
+        )
+    _invalidate_read_caches()
+    # asyncpg's execute() returns a status string like "UPDATE 3"
+    try:
+        return int(result.split()[-1])
+    except (ValueError, IndexError):
+        return 0
+
+
+async def list_my_loot(event_id: str, *, user_id: Optional[int], device_id: str) -> list[dict[str, Any]]:
+    """Everything this visitor has reported at this event -- matched by
+    user_id when signed in (covers every device they've ever used), OR by
+    this device's own id (covers activity from before they signed in, or
+    if they're browsing anonymously). Deliberately NOT cached (see
+    list_active_loot) -- this is a low-traffic, per-user query, not a hot
+    shared path a traffic spike would burst on.
+    """
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT {_LIST_COLUMNS} FROM loot_entries
+            WHERE event_id=$1 AND (user_id = $2 OR device_id = $3)
+            ORDER BY created_at DESC
+            """,
+            event_id, user_id, device_id,
+        )
+    return [_row_to_dict(r) for r in rows]
 
 
 async def get_photo(loot_id: int) -> Optional[tuple[bytes, str]]:

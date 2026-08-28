@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+import auth
 import db
 from events_registry import VALID_EVENT_IDS, EVENT_HALL_IDS, public_catalog
 
@@ -25,6 +26,7 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("loot-radar")
 
 app = FastAPI(title="loot-radar")
+app.include_router(auth.router)
 
 BUILD_SHA = os.environ.get("GIT_SHA", "dev")
 BUILD_TIME = os.environ.get("BUILD_TIME", "unknown")
@@ -204,9 +206,17 @@ async def create_loot(
         device_id=device_id,
         photo=photo_bytes,
         photo_mime=photo_mime,
+        user_id=auth.current_user_id(request),
     )
     await _broadcast("loot.created", entry)
     return entry
+
+
+@app.get("/my/loot")
+async def my_loot(request: Request, event_id: str = "gamescom2026"):
+    _valid_event(event_id)
+    device_id = _device_id(request)
+    return await db.list_my_loot(event_id, user_id=auth.current_user_id(request), device_id=device_id)
 
 
 @app.get("/loot/{loot_id}/photo")

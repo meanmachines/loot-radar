@@ -4,3 +4,14 @@ port: 8080
 domains: []
 dependencies: []
 database: true
+env:
+  SESSION_SECRET:
+    generate: hex
+  GOOGLE_CLIENT_ID:
+    required: false
+  GOOGLE_CLIENT_SECRET:
+    required: false
+  GITHUB_CLIENT_ID:
+    required: false
+  GITHUB_CLIENT_SECRET:
+    required: false

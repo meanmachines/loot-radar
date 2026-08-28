@@ -18,6 +18,7 @@
       <button class="icon-btn on" id="btn-3d-toggle" title="Toggle 3D view"></button>
       <button class="icon-btn" id="btn-track-me" title="Track my position"></button>
       <button class="icon-btn" id="btn-refresh" title="Refresh"></button>
+      <button class="icon-btn" id="btn-account" title="Account"></button>
     </div>
   </header>
 
@@ -96,6 +97,18 @@
         Add loot here
       </button>
     </div>
+  </div>
+
+  <!-- Account sheet: sign-in (logged out) or profile + own activity
+       (logged in). See app.js's own auth section for the flow. -->
+  <div id="account-sheet">
+    <div class="sheet-header">
+      <button class="icon-btn" id="account-sheet-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div><h2>Account</h2></div>
+    </div>
+    <div class="sheet-body" id="account-sheet-body"></div>
   </div>
 
   <!-- Booth detail sheet: real company/booth info from the official floor

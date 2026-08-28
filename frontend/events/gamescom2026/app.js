@@ -1111,6 +1111,147 @@ document.getElementById("btn-track-me").addEventListener("click", toggleTracking
 document.getElementById("btn-refresh").innerHTML = icon("refresh");
 document.getElementById("btn-refresh").addEventListener("click", refreshAll);
 
+// ---------------------------------------------------------------------------
+// Account -- Google/GitHub sign-in (backend/auth.py). A full-page redirect
+// to the provider, not a fetch -- that's the actual OAuth flow, there's no
+// way to do it as a background request. return_to brings the visitor back
+// to exactly where they were; device_id rides along in the login URL so
+// the backend can retroactively link this browser's past anonymous
+// activity to whichever account it comes back signed in as.
+// ---------------------------------------------------------------------------
+
+let currentUser = null;
+let availableProviders = { google: false, github: false };
+
+async function loadMe() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`);
+    const data = await res.json();
+    currentUser = data.user;
+  } catch (e) {
+    currentUser = null;
+  }
+  updateAccountButton();
+}
+
+async function loadProviders() {
+  try {
+    availableProviders = await (await fetch(`${API_BASE}/auth/providers`)).json();
+  } catch (e) {
+    // Sign-in buttons just stay hidden -- see renderAccountSheet's own
+    // "neither provider configured" fallback.
+  }
+}
+
+function updateAccountButton() {
+  const btn = document.getElementById("btn-account");
+  if (currentUser && currentUser.avatar_url) {
+    btn.innerHTML = `<img src="${escapeHtml(currentUser.avatar_url)}" style="width:22px;height:22px;border-radius:50%;object-fit:cover;" alt="" />`;
+  } else {
+    btn.innerHTML = icon("user");
+  }
+  btn.classList.toggle("on", !!currentUser);
+}
+
+function signInWith(provider) {
+  const returnTo = window.location.pathname + window.location.search;
+  window.location.href = `${API_BASE}/auth/${provider}/login?device_id=${encodeURIComponent(deviceId())}&return_to=${encodeURIComponent(returnTo)}`;
+}
+
+async function signOut() {
+  try {
+    await fetch(`${API_BASE}/auth/logout`, { method: "POST" });
+  } catch (e) { /* cookie may already be gone -- treat as signed out either way */ }
+  currentUser = null;
+  updateAccountButton();
+  renderAccountSheet();
+  toast("Signed out");
+}
+
+async function renderAccountSheet() {
+  const body = document.getElementById("account-sheet-body");
+  if (!currentUser) {
+    const anyProvider = availableProviders.google || availableProviders.github;
+    body.innerHTML = `
+      <div class="signin-intro">
+        ${icon("user")}
+        <h3>Track your own finds</h3>
+        <p>Sign in to keep your loot history and scout name with you across devices.</p>
+      </div>
+      ${availableProviders.google ? `<button class="oauth-btn" id="btn-signin-google">${icon("google")}Continue with Google</button>` : ""}
+      ${availableProviders.github ? `<button class="oauth-btn" id="btn-signin-github">${icon("github")}Continue with GitHub</button>` : ""}
+      ${!anyProvider ? `<div class="oauth-unavailable-note">Sign-in is being set up -- check back soon.</div>` : ""}
+    `;
+    const gBtn = document.getElementById("btn-signin-google");
+    if (gBtn) gBtn.addEventListener("click", () => signInWith("google"));
+    const hBtn = document.getElementById("btn-signin-github");
+    if (hBtn) hBtn.addEventListener("click", () => signInWith("github"));
+    return;
+  }
+
+  const avatar = currentUser.avatar_url
+    ? `<img class="profile-avatar" src="${escapeHtml(currentUser.avatar_url)}" alt="" />`
+    : `<div class="profile-avatar profile-avatar-fallback">${icon("user")}</div>`;
+  body.innerHTML = `
+    <div class="profile-header">
+      ${avatar}
+      <div>
+        <div class="profile-name">${escapeHtml(currentUser.display_name || "Scout")}</div>
+        ${currentUser.email ? `<div class="profile-email">${escapeHtml(currentUser.email)}</div>` : ""}
+      </div>
+    </div>
+    <div class="my-loot-section-title">My loot finds</div>
+    <div id="my-loot-list"><div class="empty-state">${icon("chest")}<span>Loading...</span></div></div>
+    <button class="btn btn-ghost" id="btn-signout" style="width:100%;margin-top:1.2rem">${icon("logout")} Sign out</button>
+  `;
+  document.getElementById("btn-signout").addEventListener("click", signOut);
+  loadMyLoot();
+}
+
+async function loadMyLoot() {
+  const list = document.getElementById("my-loot-list");
+  if (!list) return;
+  try {
+    const rows = await apiGet("/my/loot");
+    if (!rows.length) {
+      list.innerHTML = `<div class="empty-state">${icon("chest")}<span>Nothing reported yet -- go find some loot.</span></div>`;
+      return;
+    }
+    list.innerHTML = rows.map((l) => {
+      const hall = hallById(l.hall_id);
+      const thumb = l.has_photo
+        ? `<img class="booth-loot-thumb" src="${API_BASE}/loot/${l.id}/photo" alt="" />`
+        : `<div class="booth-loot-thumb"></div>`;
+      return `<div class="booth-loot-card" data-id="${l.id}">
+        ${thumb}
+        <div class="booth-loot-info">
+          <div class="booth-loot-title">${escapeHtml(l.company_name)}</div>
+          <div class="booth-loot-sub">Hall ${hall ? hall.number : "?"} &middot; Booth ${escapeHtml(l.booth_no)}</div>
+        </div>
+      </div>`;
+    }).join("");
+    list.querySelectorAll(".booth-loot-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        const entry = lootById.get(Number(card.dataset.id));
+        if (entry) { closeAccountSheet(); openHall(entry.hall_id); openLoot(entry.id); }
+      });
+    });
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state">${icon("chest")}<span>Could not load your loot right now.</span></div>`;
+  }
+}
+
+function openAccountSheet() {
+  document.getElementById("account-sheet").classList.add("open");
+  renderAccountSheet();
+}
+function closeAccountSheet() {
+  document.getElementById("account-sheet").classList.remove("open");
+}
+document.getElementById("btn-account").innerHTML = icon("user");
+document.getElementById("btn-account").addEventListener("click", openAccountSheet);
+document.getElementById("account-sheet-back").addEventListener("click", closeAccountSheet);
+
 function onOrientation(e) {
   const h = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.alpha != null ? 360 - e.alpha : null);
   if (h == null) return;
@@ -1199,4 +1340,6 @@ async function refreshAll() {
   renderVenueMap();
   await refreshAll();
   connectEvents();
+  loadMe();
+  loadProviders();
 })();
