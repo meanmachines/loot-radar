@@ -243,7 +243,7 @@ button { font-family: inherit; }
 
 /* ------------------------------------------------------------ hall sheet */
 
-#hall-sheet, #loot-sheet, #add-sheet {
+#hall-sheet, #booth-sheet, #loot-sheet, #add-sheet {
   position: absolute;
   inset: 0;
   z-index: 40;
@@ -253,7 +253,7 @@ button { font-family: inherit; }
   transform: translateY(100%);
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
-#hall-sheet.open, #loot-sheet.open, #add-sheet.open {
+#hall-sheet.open, #booth-sheet.open, #loot-sheet.open, #add-sheet.open {
   display: flex;
   transform: translateY(0);
 }
@@ -581,6 +581,29 @@ button { font-family: inherit; }
 }
 .empty-state svg { width: 40px; height: 40px; opacity: 0.5; }
 .empty-state span { font-size: 0.82rem; }
+
+.booth-loot-card {
+  display: flex; align-items: center; gap: 0.7rem;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.8rem;
+  margin-bottom: 0.55rem;
+  cursor: pointer;
+}
+.booth-loot-card .booth-loot-thumb {
+  width: 44px; height: 44px; border-radius: 8px; flex-shrink: 0;
+  object-fit: cover; background: var(--panel);
+}
+.booth-loot-info { flex: 1; min-width: 0; }
+.booth-loot-title { font-weight: 700; font-size: 0.85rem; }
+.booth-loot-sub { font-size: 0.72rem; color: var(--text-muted); }
+.booth-official-badge {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.68rem; color: var(--text-muted);
+  background: var(--glass); border: 1px solid var(--border);
+  padding: 0.2rem 0.55rem; border-radius: 999px; margin-bottom: 0.9rem;
+}
 
 /* --------------------------------------------------------------- bottom nav */
 

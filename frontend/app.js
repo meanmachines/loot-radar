@@ -418,9 +418,73 @@ function onBoothTap(stand, shiftedPts, extent) {
     document.getElementById("hall-hint").textContent = "Tap Add loot, then tap a booth (or the floor)";
     openAddSheet({ booth: stand.nr, company });
   } else if (!tracking) {
-    toast(company ? `${company} -- Booth ${stand.nr}` : `Booth ${stand.nr}`);
+    openBoothDetail(stand, shiftedPts, extent);
   }
 }
+
+// Booth-number matching between the official plan (stand.nr, sometimes a
+// compound like "A-080 C-081" for a shared/double stand) and a loot
+// entry's own free-typed booth_no -- token-overlap rather than exact
+// string equality so either side typing just one of the two numbers still
+// matches the other.
+function boothNumbersMatch(a, b) {
+  const ta = new Set(String(a).toUpperCase().split(/\s+/).filter(Boolean));
+  const tb = new Set(String(b).toUpperCase().split(/\s+/).filter(Boolean));
+  for (const t of ta) if (tb.has(t)) return true;
+  return false;
+}
+
+let boothDetailContext = null; // {hallId, stand, pin} while the booth sheet is open
+
+function openBoothDetail(stand, shiftedPts, extent) {
+  const company = stand.names && stand.names[0] ? stand.names[0] : "";
+  boothDetailContext = { hallId: openHallId, stand, pin: centroidNormalized(shiftedPts, extent) };
+
+  document.getElementById("booth-sheet-title").textContent = company || `Booth ${stand.nr}`;
+  const hall = hallById(openHallId);
+  document.getElementById("booth-sheet-sub").textContent = `Booth ${stand.nr}${hall ? ` -- Hall ${hall.number}` : ""}`;
+
+  const matches = lootForHall(openHallId).filter((l) => boothNumbersMatch(l.booth_no, stand.nr));
+  const body = document.getElementById("booth-sheet-body");
+  let html = `<div class="booth-official-badge">${icon("check")} From the official Gamescom floor plan</div>`;
+  if (!matches.length) {
+    html += `<div class="empty-state">${icon("chest")}<span>No loot reported at this booth yet -- be the first.</span></div>`;
+  } else {
+    html += matches.map((l) => {
+      const stars = l.avg_quality != null ? `${icon("star")} ${l.avg_quality}` : "Not rated yet";
+      const thumb = l.has_photo
+        ? `<img class="booth-loot-thumb" src="${API_BASE}/loot/${l.id}/photo" alt="" data-id="${l.id}" />`
+        : `<div class="booth-loot-thumb" data-id="${l.id}"></div>`;
+      return `<div class="booth-loot-card" data-id="${l.id}">
+        ${thumb}
+        <div class="booth-loot-info">
+          <div class="booth-loot-title">${escapeHtml(l.items)}</div>
+          <div class="booth-loot-sub">${stars}${l.submitted_by ? ` &middot; found by ${escapeHtml(l.submitted_by)}` : ""}</div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  body.innerHTML = html;
+  body.querySelectorAll(".booth-loot-card").forEach((card) => {
+    card.addEventListener("click", () => openLoot(Number(card.dataset.id)));
+  });
+
+  document.getElementById("booth-sheet").classList.add("open");
+}
+
+function closeBoothDetail() {
+  document.getElementById("booth-sheet").classList.remove("open");
+  boothDetailContext = null;
+}
+document.getElementById("booth-sheet-back").addEventListener("click", closeBoothDetail);
+document.getElementById("booth-report-btn").addEventListener("click", () => {
+  if (!boothDetailContext) return;
+  const { stand, pin } = boothDetailContext;
+  const company = stand.names && stand.names[0] ? stand.names[0] : "";
+  pendingPin = pin;
+  closeBoothDetail();
+  openAddSheet({ booth: stand.nr, company });
+});
 
 // ---------------------------------------------------------------------------
 // Hall detail sheet
