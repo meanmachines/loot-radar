@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+<title>Loot Radar -- Gamescom</title>
+<meta name="theme-color" content="#05050a" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <div id="toast-stack"></div>
+
+  <header id="topbar">
+    <div id="wordmark"><span class="dot"></span>LOOT RADAR<small>Gamescom</small></div>
+    <div id="topbar-actions">
+      <button class="icon-btn" id="btn-track-me" title="Track my position"></button>
+      <button class="icon-btn" id="btn-refresh" title="Refresh"></button>
+    </div>
+  </header>
+
+  <div id="searchbar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input id="search-input" type="text" placeholder="Search company or item..." autocomplete="off" />
+    <span id="search-clear">&times;</span>
+  </div>
+
+  <div id="views">
+
+    <section class="view active" id="view-map">
+      <div id="map-scroll">
+        <div id="venue-svg-wrap">
+          <svg id="venue-svg" viewBox="0 0 1000 700" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+      </div>
+      <div id="legend-strip"></div>
+    </section>
+
+    <section class="view" id="view-leaderboard">
+      <div id="leaderboard-tabs">
+        <button class="lb-tab active" data-tab="top_loot">Top Loot</button>
+        <button class="lb-tab" data-tab="top_halls">Top Halls</button>
+        <button class="lb-tab" data-tab="top_finders">Top Scouts</button>
+      </div>
+      <div id="leaderboard-list"></div>
+    </section>
+
+  </div>
+
+  <nav id="bottomnav">
+    <button class="nav-btn active" data-view="map">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-6-3V4l6 3 6-3 6 3v13l-6-3-6 3z"/><line x1="9" y1="7" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="17"/></svg>
+      Map
+    </button>
+    <button class="nav-btn center" id="btn-add-global" title="Add loot">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+    <button class="nav-btn" data-view="leaderboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3a2 2 0 0 1-2 4h-1M7 5H4a2 2 0 0 0 2 4h1"/></svg>
+      Board
+    </button>
+  </nav>
+
+  <!-- Hall detail sheet: schematic interior canvas with pins -->
+  <div id="hall-sheet">
+    <div class="sheet-header">
+      <button class="icon-btn" id="hall-sheet-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div>
+        <h2 id="hall-sheet-title">Hall</h2>
+        <div class="sub" id="hall-sheet-sub"></div>
+      </div>
+    </div>
+    <div id="hall-canvas-wrap">
+      <div class="crosshair-hint" id="hall-hint">Tap the floor to drop a loot pin</div>
+      <div class="accuracy-pill" id="hall-accuracy"></div>
+      <div id="hall-canvas-inner">
+        <div id="me-dot"><div class="me-dot-ring"></div><div class="me-dot-core"></div><div class="me-dot-heading"></div></div>
+      </div>
+    </div>
+    <div id="hall-add-fab">
+      <button class="btn btn-primary" id="hall-add-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add loot here
+      </button>
+    </div>
+  </div>
+
+  <!-- Loot detail bottom sheet -->
+  <div id="loot-sheet">
+    <div class="sheet-header">
+      <button class="icon-btn" id="loot-sheet-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div><h2>Loot details</h2></div>
+    </div>
+    <div class="sheet-body" id="loot-sheet-body"></div>
+  </div>
+
+  <!-- Add loot form sheet -->
+  <div id="add-sheet">
+    <div class="sheet-header">
+      <button class="icon-btn" id="add-sheet-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div><h2>Report loot</h2></div>
+    </div>
+    <div class="sheet-body">
+      <div class="field">
+        <label>Hall</label>
+        <input type="text" id="form-hall-display" readonly />
+      </div>
+      <div class="field">
+        <label>Booth number</label>
+        <input type="text" id="form-booth" placeholder="e.g. B021" maxlength="40" />
+      </div>
+      <div class="field">
+        <label>Company name</label>
+        <input type="text" id="form-company" placeholder="e.g. Nova Interactive" maxlength="120" />
+      </div>
+      <div class="field">
+        <label>Loot items</label>
+        <textarea id="form-items" placeholder="e.g. pins, poster, keycap, tote bag" maxlength="500"></textarea>
+      </div>
+      <div class="field">
+        <label>Your name (optional)</label>
+        <input type="text" id="form-name" placeholder="Shown on the leaderboard" maxlength="60" />
+      </div>
+      <div class="field">
+        <label>Photo (optional)</label>
+        <div class="photo-picker" id="photo-picker">
+          <span id="photo-picker-text">Tap to attach a photo</span>
+          <input type="file" accept="image/*" capture="environment" id="form-photo" />
+        </div>
+      </div>
+      <div class="field-hint" id="form-pin-hint">Pin placed at the spot you tapped on the hall map.</div>
+    </div>
+    <div class="sheet-footer">
+      <button class="btn btn-ghost" id="add-cancel" style="flex:1">Cancel</button>
+      <button class="btn btn-primary" id="add-submit" style="flex:2">Submit loot</button>
+    </div>
+  </div>
+
+</div>
+<script src="/icons.js"></script>
+<script src="/halls.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

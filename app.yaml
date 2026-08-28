@@ -1,0 +1,6 @@
+name: loot-radar
+memory_mb: 512
+port: 8080
+domains: []
+dependencies: []
+database: true
