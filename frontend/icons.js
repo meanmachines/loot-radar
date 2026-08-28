@@ -14,6 +14,7 @@ const ICONS = {
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg>',
   radar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><path d="M12 12L18 7"/></svg>',
   chest: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="10" width="18" height="10" rx="1.5"/><path d="M3 10c0-3.5 4-6 9-6s9 2.5 9 6"/><rect x="9.5" y="13" width="5" height="4" rx="0.6"/></svg>',
+  cube: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>',
 };
 
 function icon(name, extraClass) {

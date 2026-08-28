@@ -15,6 +15,7 @@
   <header id="topbar">
     <div id="wordmark"><span class="dot"></span>LOOT RADAR<small>Gamescom</small></div>
     <div id="topbar-actions">
+      <button class="icon-btn on" id="btn-3d-toggle" title="Toggle 3D view"></button>
       <button class="icon-btn" id="btn-track-me" title="Track my position"></button>
       <button class="icon-btn" id="btn-refresh" title="Refresh"></button>
     </div>
@@ -31,7 +32,7 @@
     <section class="view active" id="view-map">
       <div id="map-scroll">
         <div id="venue-svg-wrap">
-          <svg id="venue-svg" viewBox="0 0 1000 700" xmlns="http://www.w3.org/2000/svg"></svg>
+          <svg id="venue-svg" viewBox="0 0 1000 660" xmlns="http://www.w3.org/2000/svg"></svg>
         </div>
       </div>
       <div id="legend-strip"></div>
@@ -73,10 +74,19 @@
         <div class="sub" id="hall-sheet-sub"></div>
       </div>
     </div>
+    <div id="hall-level-switcher"></div>
     <div id="hall-canvas-wrap">
       <div class="crosshair-hint" id="hall-hint">Tap the floor to drop a loot pin</div>
       <div class="accuracy-pill" id="hall-accuracy"></div>
       <div id="hall-canvas-inner">
+        <!-- preserveAspectRatio="none": loot pins are positioned as plain CSS
+             percentages of this container (see app.js's renderHallPins), so
+             the SVG plan must stretch to exactly fill it with no letterboxing
+             -- otherwise a pin's saved 0..1 fraction and the plan's own
+             content wouldn't agree on where "0.5, 0.5" actually is. Trades a
+             hall's true aspect ratio (may look slightly stretched/squished)
+             for pixel-accurate pin placement, which matters more here. -->
+        <svg id="hall-plan-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
         <div id="me-dot"><div class="me-dot-ring"></div><div class="me-dot-core"></div><div class="me-dot-heading"></div></div>
       </div>
     </div>

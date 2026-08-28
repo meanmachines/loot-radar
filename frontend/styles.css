@@ -210,6 +210,19 @@ button { font-family: inherit; }
   50% { opacity: 0.55; transform: scale(0.82); }
 }
 
+/* Isometric 3D venue overview (see buildIsoHallBlock in app.js) -- each
+   hall is drawn as three polygons (top face, left face, right face) from
+   a standard 2:1 isometric projection of its rect, extruded upward by an
+   amount related to its real stand count so bigger halls read as taller
+   blocks. Top face keeps the hall's own category color; the two side
+   faces are progressively darkened for a consistent light-from-above
+   read, same convention as any isometric tile-based game. */
+.iso-top { stroke-width: 1.5; cursor: pointer; }
+.iso-left { stroke-width: 1; cursor: pointer; }
+.iso-right { stroke-width: 1; cursor: pointer; }
+.iso-hall-group { transition: transform 0.15s ease; transform-box: fill-box; transform-origin: center; }
+.iso-hall-group:active { transform: translateY(2px); }
+
 /* --------------------------------------------------------------- legend */
 
 #legend-strip {
@@ -253,6 +266,30 @@ button { font-family: inherit; }
 .sheet-header h2 { margin: 0; font-size: 1rem; font-weight: 800; flex: 1; }
 .sheet-header .sub { font-size: 0.72rem; color: var(--text-muted); }
 
+/* Level switcher -- only shown for a hall with real multi-storey plan
+   data (see HALLPLAN_LEVELS in halls.js), e.g. hall 5's two real storeys. */
+#hall-level-switcher {
+  display: none;
+  gap: 0.5rem;
+  padding: 0 1rem 0.6rem;
+  flex-shrink: 0;
+}
+#hall-level-switcher .level-btn {
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--glass);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+#hall-level-switcher .level-btn.active {
+  color: var(--bg);
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  border-color: transparent;
+}
+
 #hall-canvas-wrap {
   flex: 1;
   min-height: 0;
@@ -263,6 +300,28 @@ button { font-family: inherit; }
     linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
   background-size: 32px 32px;
 }
+/* Real booth-plan layer (see loadHallPlanFile/renderRealHallPlan in app.js)
+   -- vendored from gc2026-guide, MIT licensed, see frontend/hallplan/
+   ATTRIBUTION.md. Sits behind the loot-pin layer in the same stacking
+   context (DOM order, not z-index -- see index.html: this SVG is
+   #hall-canvas-inner's first child, pins are appended after it). */
+#hall-plan-svg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+}
+.hallplan-wall { fill: none; stroke: rgba(255,255,255,0.22); stroke-width: 0.8; }
+.hallplan-block { fill: rgba(255,255,255,0.03); stroke: rgba(255,255,255,0.06); stroke-width: 0.3; pointer-events: none; }
+.hallplan-door { stroke: var(--cyan); stroke-width: 1.4; opacity: 0.55; stroke-linecap: round; }
+.hallplan-stand {
+  fill: rgba(255,255,255,0.05);
+  stroke: rgba(255,255,255,0.14);
+  stroke-width: 0.3;
+  cursor: pointer;
+  transition: fill 0.1s ease;
+}
+.hallplan-stand.named { fill: rgba(155, 91, 255, 0.14); stroke: rgba(155, 91, 255, 0.35); }
+.hallplan-stand:active { fill: rgba(255, 46, 203, 0.35); }
+
 #hall-canvas-inner {
   position: absolute; inset: 0;
   touch-action: none;

@@ -102,8 +102,33 @@ function svgEl(tag, attrs) {
   return el;
 }
 
+let mapViewMode = "3d"; // "3d" | "2d" -- see toggleMapViewMode
+
 function renderVenueMap() {
+  if (mapViewMode === "3d") renderVenueMapIso();
+  else renderVenueMap2D();
+}
+
+function hallLootBadge(hall, cx, cy, g) {
+  // Loot-count badge -- pulses when the hall has any active entries so a
+  // scan of the whole venue shows where loot has been reported at a
+  // glance. Shared between the 2D and 3D renderers (cx/cy is wherever the
+  // caller wants the badge anchored -- top-right corner of the flat rect
+  // for 2D, apex of the extruded block's top face for 3D).
+  const count = hallLootCount(hall.id);
+  if (count <= 0) return;
+  const ping = svgEl("circle", { cx, cy, r: 14, class: "hall-badge-ping animate", stroke: hall.color });
+  g.appendChild(ping);
+  const bg = svgEl("circle", { cx, cy, r: 14, class: "hall-badge-bg", stroke: hall.color });
+  g.appendChild(bg);
+  const countText = svgEl("text", { x: cx, y: cy + 1, class: "hall-badge-count" });
+  countText.textContent = String(count);
+  g.appendChild(countText);
+}
+
+function renderVenueMap2D() {
   const svg = document.getElementById("venue-svg");
+  svg.setAttribute("viewBox", `0 0 ${VENUE_VIEWBOX.w} ${VENUE_VIEWBOX.h}`);
   svg.innerHTML = "";
 
   for (const hall of HALLS) {
@@ -143,22 +168,7 @@ function renderVenueMap() {
     sub.textContent = hall.category.length > 20 ? hall.name : hall.category;
     g.appendChild(sub);
 
-    // Loot-count badge, top-right corner of the hall rect -- pulses when
-    // the hall has any active entries so a scan of the whole venue shows
-    // where loot has been reported at a glance.
-    const count = hallLootCount(hall.id);
-    if (count > 0) {
-      const bx = hall.rect.x + hall.rect.w - 6;
-      const by = hall.rect.y + 6;
-      const ping = svgEl("circle", { cx: bx, cy: by, r: 14, class: "hall-badge-ping animate", stroke: hall.color });
-      g.appendChild(ping);
-      const bg = svgEl("circle", { cx: bx, cy: by, r: 14, class: "hall-badge-bg", stroke: hall.color });
-      g.appendChild(bg);
-      const countText = svgEl("text", { x: bx, y: by + 1, class: "hall-badge-count" });
-      countText.textContent = String(count);
-      g.appendChild(countText);
-    }
-
+    hallLootBadge(hall, hall.rect.x + hall.rect.w - 6, hall.rect.y + 6, g);
     svg.appendChild(g);
   }
 
@@ -168,6 +178,101 @@ function renderVenueMap() {
     svg.appendChild(t);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Isometric 3D venue overview -- standard 2:1 dimetric tile projection
+// (the same math any isometric tile game uses), applied to each hall's own
+// flat rect instead of tracing new geometry, so this stays in sync with
+// halls.js automatically. No WebGL/3D library -- three flat SVG polygons
+// per hall (top/left/right faces) reads as a convincing "block city" at
+// this scale and is far cheaper to build and to ship today.
+// ---------------------------------------------------------------------------
+
+const ISO_ANGLE = Math.PI / 6; // 30 degrees -- standard isometric tile angle
+const ISO_COS = Math.cos(ISO_ANGLE);
+const ISO_SIN = Math.sin(ISO_ANGLE);
+
+function isoProject(x, y, z) {
+  // Standard isometric projection: screen.x from (x - y), screen.y from
+  // (x + y) compressed vertically, then z lifts straight up the screen.
+  return {
+    x: (x - y) * ISO_COS,
+    y: (x + y) * ISO_SIN - z,
+  };
+}
+
+function isoHeightForHall(hall) {
+  const levels = HALLPLAN_LEVELS[hall.id];
+  const count = levels
+    ? (INDEX_CACHE ? levels.reduce((s, lvl) => s + (INDEX_CACHE.byFile[lvl.file]?.stands || 0), 0) : 40)
+    : 25;
+  return 26 + Math.min(46, Math.sqrt(count) * 5.2);
+}
+
+function shade(hex, factor) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * factor)));
+  const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * factor)));
+  const b = Math.max(0, Math.min(255, Math.round((n & 255) * factor)));
+  return `rgb(${r},${g},${b})`;
+}
+
+function renderVenueMapIso() {
+  const svg = document.getElementById("venue-svg");
+  const halls = [...HALLS].sort((a, b) => (a.rect.x + a.rect.y) - (b.rect.x + b.rect.y)); // back-to-front paint order
+  const pts = [];
+  const blocks = [];
+  for (const hall of halls) {
+    const { x, y, w, h } = hall.rect;
+    const height = isoHeightForHall(hall);
+    const corners = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+    const top = corners.map(([px, py]) => isoProject(px, py, height));
+    const base = corners.map(([px, py]) => isoProject(px, py, 0));
+    top.forEach((p) => pts.push(p));
+    base.forEach((p) => pts.push(p));
+    blocks.push({ hall, top, base, height });
+  }
+  const minX = Math.min(...pts.map((p) => p.x));
+  const maxX = Math.max(...pts.map((p) => p.x));
+  const minY = Math.min(...pts.map((p) => p.y));
+  const maxY = Math.max(...pts.map((p) => p.y));
+  const pad = 24;
+  svg.setAttribute("viewBox", `${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`);
+  svg.innerHTML = "";
+
+  const poly = (points) => points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+
+  for (const { hall, top, base } of blocks) {
+    const g = svgEl("g", { class: "iso-hall-group" });
+    g.addEventListener("click", () => openHall(hall.id));
+
+    // Right face: top[1]-top[2]-base[2]-base[1] (east-facing side)
+    const right = svgEl("polygon", { points: poly([top[1], top[2], base[2], base[1]]), class: "iso-right", fill: shade(hall.color, 0.55), stroke: shade(hall.color, 0.4) });
+    // Left/front face: top[2]-top[3]-base[3]-base[2] (south-facing side)
+    const left = svgEl("polygon", { points: poly([top[2], top[3], base[3], base[2]]), class: "iso-left", fill: shade(hall.color, 0.75), stroke: shade(hall.color, 0.55) });
+    // Top face
+    const face = svgEl("polygon", { points: poly(top), class: "iso-top", fill: hall.color, stroke: shade(hall.color, 1.25) });
+    g.appendChild(right);
+    g.appendChild(left);
+    g.appendChild(face);
+
+    const centerTop = { x: (top[0].x + top[2].x) / 2, y: (top[0].y + top[2].y) / 2 };
+    const label = svgEl("text", { x: centerTop.x, y: centerTop.y - 2, class: "hall-label", style: "font-size:20px" });
+    label.textContent = hall.number;
+    g.appendChild(label);
+
+    hallLootBadge(hall, top[1].x, top[1].y, g);
+    svg.appendChild(g);
+  }
+}
+
+function toggleMapViewMode() {
+  mapViewMode = mapViewMode === "3d" ? "2d" : "3d";
+  document.getElementById("btn-3d-toggle").classList.toggle("on", mapViewMode === "3d");
+  renderVenueMap();
+}
+document.getElementById("btn-3d-toggle").innerHTML = icon("cube");
+document.getElementById("btn-3d-toggle").addEventListener("click", toggleMapViewMode);
 
 function renderLegend() {
   const strip = document.getElementById("legend-strip");
@@ -179,20 +284,200 @@ function renderLegend() {
 }
 
 // ---------------------------------------------------------------------------
+// Real hall-plan data -- vendored from gc2026-guide (MIT), see
+// frontend/hallplan/ATTRIBUTION.md. index.json lists every covered hall's
+// real size + stand count (used above for isoHeightForHall); outline.json
+// supplies wall margins and door positions layered on top of Koelnmesse's
+// own stand/block-only endpoint data (see that file's own `note` field for
+// full provenance). Loaded lazily and cached -- most sessions only ever
+// open a handful of halls, no reason to fetch all fifteen files up front.
+// ---------------------------------------------------------------------------
+
+let INDEX_CACHE = null;
+const hallPlanCache = new Map(); // file id -> parsed plan json
+let outlineCache = null;
+let outlinePromise = null;
+let currentHallLevel = null; // {hallId, file, plan, margin, extent} while a real-plan hall is open
+
+async function loadHallplanIndex() {
+  if (INDEX_CACHE) return INDEX_CACHE;
+  const res = await fetch("/hallplan/index.json");
+  const data = await res.json();
+  const byFile = {};
+  for (const h of data.halls) byFile[h.id] = h;
+  INDEX_CACHE = { ...data, byFile };
+  return INDEX_CACHE;
+}
+
+async function loadHallPlanFile(fileId) {
+  if (hallPlanCache.has(fileId)) return hallPlanCache.get(fileId);
+  const res = await fetch(`/hallplan/hall-${fileId}.json`);
+  if (!res.ok) throw new Error(`plan fetch failed for ${fileId}`);
+  const data = await res.json();
+  hallPlanCache.set(fileId, data);
+  return data;
+}
+
+async function loadOutline() {
+  if (outlineCache) return outlineCache;
+  if (!outlinePromise) outlinePromise = fetch("/hallplan/outline.json").then((r) => r.json());
+  outlineCache = await outlinePromise;
+  return outlineCache;
+}
+
+function marginFor(outline, fileId) {
+  const base = outline.margin;
+  const override = (outline.halls[fileId] && outline.halls[fileId].margin) || {};
+  return {
+    n: override.n ?? base.n,
+    e: override.e ?? base.e,
+    s: override.s ?? base.s,
+    w: override.w ?? base.w,
+  };
+}
+
+function planExtent(plan, margin) {
+  return { w: margin.w + plan.size[0] + margin.e, h: margin.n + plan.size[1] + margin.s };
+}
+
+async function renderRealHallPlan(hallId, fileId) {
+  const [plan, outline] = await Promise.all([loadHallPlanFile(fileId), loadOutline()]);
+  const margin = marginFor(outline, fileId);
+  const extent = planExtent(plan, margin);
+  currentHallLevel = { hallId, file: fileId, plan, margin, extent };
+
+  const svg = document.getElementById("hall-plan-svg");
+  svg.setAttribute("viewBox", `0 0 ${extent.w} ${extent.h}`);
+  svg.innerHTML = "";
+
+  svg.appendChild(svgEl("rect", { x: 0, y: 0, width: extent.w, height: extent.h, class: "hallplan-wall" }));
+
+  for (const block of plan.blocks || []) {
+    const points = block.map(([x, y]) => `${x + margin.w},${y + margin.n}`).join(" ");
+    svg.appendChild(svgEl("polygon", { points, class: "hallplan-block" }));
+  }
+
+  const doors = (outline.halls[fileId] && outline.halls[fileId].doors) || [];
+  for (const door of doors) {
+    const seg = doorSegment(door, margin, extent);
+    if (seg) svg.appendChild(svgEl("line", { ...seg, class: "hallplan-door" }));
+  }
+
+  for (const stand of plan.stands || []) {
+    const shifted = stand.poly.map(([x, y]) => [x + margin.w, y + margin.n]);
+    const named = stand.names && stand.names.length > 0;
+    const poly = svgEl("polygon", {
+      points: shifted.map(([x, y]) => `${x},${y}`).join(" "),
+      class: "hallplan-stand" + (named ? " named" : ""),
+    });
+    poly.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onBoothTap(stand, shifted, extent);
+    });
+    svg.appendChild(poly);
+  }
+}
+
+// Door "at"/"span" are documented (outline.json's own note field) as
+// metres along the wall, centered on the opening, in the SAME raw frame as
+// stand/block coordinates (0 at the tight box's own corner, can run
+// negative into the margin) -- so the same +margin.w/+margin.n shift
+// applied to every other coordinate in this file places a door correctly
+// too. The wall itself sits at the extent box's own edges (x=0/x=extent.w
+// for west/east, y=0/y=extent.h for north/south) since that's exactly what
+// the outer <rect> is drawn at. Purely a visual wayfinding cue (a short
+// cyan tick where an opening is), not asserted as survey-precise.
+function doorSegment(door, margin, extent) {
+  const half = door.span / 2;
+  if (door.edge === "n" || door.edge === "s") {
+    const x1 = door.at - half + margin.w;
+    const x2 = door.at + half + margin.w;
+    const y = door.edge === "n" ? 0 : extent.h;
+    return { x1, y1: y, x2, y2: y };
+  }
+  if (door.edge === "e" || door.edge === "w") {
+    const y1 = door.at - half + margin.n;
+    const y2 = door.at + half + margin.n;
+    const x = door.edge === "w" ? 0 : extent.w;
+    return { x1: x, y1, x2: x, y2 };
+  }
+  return null;
+}
+
+function centroidNormalized(pts, extent) {
+  const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  return { x: clamp01(cx / extent.w), y: clamp01(cy / extent.h) };
+}
+
+function onBoothTap(stand, shiftedPts, extent) {
+  const company = stand.names && stand.names[0] ? stand.names[0] : "";
+  if (pendingAction === "placing-loot") {
+    pendingPin = centroidNormalized(shiftedPts, extent);
+    pendingAction = null;
+    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap a booth (or the floor)";
+    openAddSheet({ booth: stand.nr, company });
+  } else if (!tracking) {
+    toast(company ? `${company} -- Booth ${stand.nr}` : `Booth ${stand.nr}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Hall detail sheet
 // ---------------------------------------------------------------------------
 
-function openHall(hallId) {
+async function openHall(hallId) {
   const hall = hallById(hallId);
   if (!hall) return;
   openHallId = hallId;
   pendingAction = null;
   document.getElementById("hall-sheet-title").textContent = `Hall ${hall.number}`;
   document.getElementById("hall-sheet-sub").textContent = hall.category;
-  document.getElementById("hall-hint").textContent = "Tap Add loot, then tap the floor to drop a pin";
   document.getElementById("hall-sheet").classList.add("open");
-  renderHallPins();
+
+  const levels = HALLPLAN_LEVELS[hallId];
+  const switcher = document.getElementById("hall-level-switcher");
+  if (levels) {
+    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap a booth (or the floor)";
+    switcher.style.display = levels.length > 1 ? "flex" : "none";
+    renderLevelSwitcherButtons(hallId, levels);
+    await openHallLevel(hallId, levels[0].file);
+  } else {
+    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap the floor to drop a pin";
+    switcher.style.display = "none";
+    currentHallLevel = null;
+    document.getElementById("hall-plan-svg").innerHTML = "";
+    renderHallPins();
+  }
   positionMeDot();
+}
+
+async function openHallLevel(hallId, fileId) {
+  updateLevelSwitcherActive(fileId);
+  try {
+    await renderRealHallPlan(hallId, fileId);
+  } catch (e) {
+    toast("Real floor plan unavailable -- using free placement", true);
+    currentHallLevel = null;
+    document.getElementById("hall-plan-svg").innerHTML = "";
+  }
+  renderHallPins();
+}
+
+function renderLevelSwitcherButtons(hallId, levels) {
+  const switcher = document.getElementById("hall-level-switcher");
+  switcher.innerHTML = "";
+  for (const lvl of levels) {
+    const btn = document.createElement("button");
+    btn.className = "level-btn";
+    btn.textContent = lvl.label;
+    btn.dataset.file = lvl.file;
+    btn.addEventListener("click", () => openHallLevel(hallId, lvl.file));
+    switcher.appendChild(btn);
+  }
+}
+function updateLevelSwitcherActive(fileId) {
+  document.querySelectorAll("#hall-level-switcher .level-btn").forEach((b) => b.classList.toggle("active", b.dataset.file === fileId));
 }
 
 function closeHall() {
@@ -234,17 +519,40 @@ function goldForRating(avg) {
   return "#ff2ecb";
 }
 
-document.getElementById("hall-canvas-inner").addEventListener("click", (e) => {
+// Real bug found live: with a real plan loaded, #hall-plan-svg uses
+// preserveAspectRatio="xMidYMid meet", which can letterbox the SVG's
+// content inside #hall-canvas-inner's own box whenever their aspect
+// ratios don't match -- a plain click-fraction-of-container calculation
+// would then land off the real floor plan by however much letterboxing is
+// happening. getScreenCTM().inverse() asks the SVG itself where a screen
+// point falls in its own user-space (viewBox/metre) coordinates, which is
+// correct regardless of letterboxing. Falls back to the simple
+// container-fraction math for a schematic-only hall (no SVG plan drawn
+// under it at all, so there's no letterboxing question to begin with).
+function clickToNormalizedPosition(e) {
+  if (currentHallLevel) {
+    const svg = document.getElementById("hall-plan-svg");
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return { x: clamp01(svgPt.x / currentHallLevel.extent.w), y: clamp01(svgPt.y / currentHallLevel.extent.h) };
+  }
   const rect = e.currentTarget.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width;
-  const y = (e.clientY - rect.top) / rect.height;
+  return { x: clamp01((e.clientX - rect.left) / rect.width), y: clamp01((e.clientY - rect.top) / rect.height) };
+}
+
+document.getElementById("hall-canvas-inner").addEventListener("click", (e) => {
   if (pendingAction === "placing-loot") {
-    pendingPin = { x: clamp01(x), y: clamp01(y) };
+    pendingPin = clickToNormalizedPosition(e);
     pendingAction = null;
-    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap the floor to drop a pin";
+    document.getElementById("hall-hint").textContent = currentHallLevel
+      ? "Tap Add loot, then tap a booth (or the floor)"
+      : "Tap Add loot, then tap the floor to drop a pin";
     openAddSheet();
   } else if (tracking) {
-    setMePosition(clamp01(x), clamp01(y));
+    const pos = clickToNormalizedPosition(e);
+    setMePosition(pos.x, pos.y);
   }
 });
 
@@ -340,11 +648,11 @@ async function rateLoot(id, stars) {
 
 let selectedPhotoBlob = null;
 
-function openAddSheet() {
+function openAddSheet(prefill) {
   const hall = hallById(openHallId);
   document.getElementById("form-hall-display").value = hall ? `Hall ${hall.number} -- ${hall.category}` : "";
-  document.getElementById("form-booth").value = "";
-  document.getElementById("form-company").value = "";
+  document.getElementById("form-booth").value = (prefill && prefill.booth) || "";
+  document.getElementById("form-company").value = (prefill && prefill.company) || "";
   document.getElementById("form-items").value = "";
   document.getElementById("form-name").value = localStorage.getItem("lr_display_name") || "";
   document.getElementById("photo-picker-text").style.display = "";
@@ -352,7 +660,13 @@ function openAddSheet() {
   if (preview) preview.remove();
   document.getElementById("form-photo").value = "";
   selectedPhotoBlob = null;
-  document.getElementById("form-pin-hint").textContent = "Pin placed at the spot you tapped on the hall map.";
+  // Real-plan halls prefill booth/company straight from the tapped booth's
+  // own official data (see onBoothTap) -- worth telling the user so they
+  // trust it's not a guess, and know to double-check/correct it if the
+  // booth's real occupant differs from what's on file.
+  document.getElementById("form-pin-hint").textContent = prefill && prefill.booth
+    ? "Booth number and company pre-filled from the official floor plan -- edit if it's wrong."
+    : "Pin placed at the spot you tapped on the hall map.";
   document.getElementById("add-sheet").classList.add("open");
 }
 
@@ -731,6 +1045,12 @@ async function refreshAll() {
 
 (async function init() {
   renderLegend();
+  try {
+    await loadHallplanIndex();
+  } catch (e) {
+    // Real hall sizes just fall back to isoHeightForHall's own defaults --
+    // the venue map still renders fine, blocks are just less proportional.
+  }
   renderVenueMap();
   await refreshAll();
   connectEvents();
