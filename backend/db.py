@@ -216,14 +216,25 @@ async def cast_vote(loot_id: int, device_id: str, vote_type: str) -> Optional[di
             # it back, since this recomputes fresh on every vote.
             total = confirm_count + dispute_count
             status = "hidden" if (total >= 3 and dispute_count > confirm_count) else "active"
+            # Real bug found live: `validity_score = $2 - $3` inside the SQL
+            # itself raised asyncpg.exceptions.AmbiguousFunctionError
+            # ("operator is not unique: unknown - unknown") -- both
+            # placeholders arrive at the wire as untyped parameters, and
+            # Postgres couldn't infer a type for the bare `-` between two
+            # of them from this UPDATE's own context. confirm_count and
+            # dispute_count are already plain Python ints here (asyncpg
+            # maps bigint -> int), so just doing the subtraction in Python
+            # and passing the result as its own typed parameter sidesteps
+            # the ambiguity entirely instead of adding SQL-side casts.
+            validity_score = confirm_count - dispute_count
             await conn.execute(
                 """
                 UPDATE loot_entries
                 SET confirm_count=$2, dispute_count=$3,
-                    validity_score = $2 - $3, status=$4
+                    validity_score=$4, status=$5
                 WHERE id=$1
                 """,
-                loot_id, confirm_count, dispute_count, status,
+                loot_id, confirm_count, dispute_count, validity_score, status,
             )
             return await _fetch_one(conn, loot_id)
 
