@@ -186,6 +186,14 @@ async def get_photo(loot_id: int) -> Optional[tuple[bytes, str]]:
 async def cast_vote(loot_id: int, device_id: str, vote_type: str) -> Optional[dict[str, Any]]:
     async with pool().acquire() as conn:
         async with conn.transaction():
+            # Real bug found live: without this check, voting on a
+            # nonexistent loot_id (a stale link, a typo'd id) raised an
+            # unhandled asyncpg.exceptions.ForeignKeyViolationError from
+            # the INSERT below (loot_votes.loot_id references
+            # loot_entries.id) -- a 500, not the clean 404 main.py's own
+            # vote_loot handler already expects when this returns None.
+            if not await conn.fetchval("SELECT 1 FROM loot_entries WHERE id=$1", loot_id):
+                return None
             existing = await conn.fetchval(
                 "SELECT vote_type FROM loot_votes WHERE loot_id=$1 AND device_id=$2", loot_id, device_id
             )
@@ -242,6 +250,10 @@ async def cast_vote(loot_id: int, device_id: str, vote_type: str) -> Optional[di
 async def cast_rating(loot_id: int, device_id: str, stars: int) -> Optional[dict[str, Any]]:
     async with pool().acquire() as conn:
         async with conn.transaction():
+            # Same real bug as cast_vote above, same fix -- loot_ratings has
+            # the identical FK-to-loot_entries shape.
+            if not await conn.fetchval("SELECT 1 FROM loot_entries WHERE id=$1", loot_id):
+                return None
             await conn.execute(
                 """
                 INSERT INTO loot_ratings (loot_id, device_id, stars) VALUES ($1,$2,$3)
