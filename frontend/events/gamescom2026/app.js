@@ -511,6 +511,7 @@ async function renderRealHallPlan(hallId, fileId) {
 
   const LABEL_GAP = 0.6;
   const placedRects = [];
+  const placed = [];
   for (const c of labelCandidates) {
     const rect = {
       minX: c.cx - STAND_BADGE_W / 2 - LABEL_GAP,
@@ -523,8 +524,31 @@ async function renderRealHallPlan(hallId, fileId) {
     );
     if (collides) continue;
     placedRects.push(rect);
-    appendStandLabels(svg, c.cx, c.cy, c.stand.nr);
+    placed.push(c);
   }
+
+  // Zoom-tiered reveal -- a dense hall still crams 50-90 non-overlapping
+  // badges into the same screen space at the default zoom, which reads as
+  // a wall of text even though nothing technically collides. Direct
+  // feedback: "you don't need to fit everything in the same view, use
+  // zoom [in/out]... make everything look super clean." Only the
+  // highest-priority badges (named/largest booths, already first in
+  // `placed` thanks to the sort above) show at the default zoom; the rest
+  // reveal progressively as the user pinch-zooms in, same label-density
+  // pattern any real map app uses. A sparse hall (at or under
+  // DENSE_THRESHOLD) skips this and shows every badge immediately --
+  // halls like Hall 3/Hall 9 already looked clean without any hiding.
+  const DENSE_THRESHOLD = 40;
+  const dense = placed.length > DENSE_THRESHOLD;
+  placed.forEach((c, i) => {
+    let reveal = HALL_ZOOM_MIN;
+    if (dense) {
+      const frac = placed.length > 1 ? i / (placed.length - 1) : 0;
+      reveal = frac < 0.22 ? 1 : frac < 0.55 ? 2 : 3.5;
+    }
+    appendStandLabels(svg, c.cx, c.cy, c.stand.nr, reveal);
+  });
+  updateLabelVisibility();
 }
 
 // Real gap found live: booth polygons rendered with zero visible text --
@@ -567,14 +591,20 @@ function fitLabelText(text) {
 // cx/cy: badge center, already resolved by the caller's collision pass
 // against every other candidate badge in the hall -- this function just
 // draws at the given point, it no longer decides whether to.
-function appendStandLabels(svg, cx, cy, nr) {
+// revealZoom: the hall-canvas zoom scale (see HALL_ZOOM_MIN/MAX) at which
+// this badge starts showing -- 1 means "visible immediately," higher means
+// "hidden until the user pinch-zooms in that far." Badge+text share one
+// <g> so updateLabelVisibility only has one element per booth to toggle.
+function appendStandLabels(svg, cx, cy, nr, revealZoom) {
+  const g = svgEl("g", { class: "hallplan-label-group", "data-reveal": revealZoom });
+
   const badge = svgEl("rect", {
     x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
     width: STAND_BADGE_W, height: STAND_BADGE_H,
     rx: STAND_BADGE_H / 2,
     class: "hallplan-stand-badge",
   });
-  svg.appendChild(badge);
+  g.appendChild(badge);
 
   const boothLabel = svgEl("text", {
     x: cx, y: cy,
@@ -582,7 +612,21 @@ function appendStandLabels(svg, cx, cy, nr) {
     "font-size": STAND_BADGE_FONT,
   });
   boothLabel.textContent = fitLabelText(nr);
-  svg.appendChild(boothLabel);
+  g.appendChild(boothLabel);
+
+  svg.appendChild(g);
+}
+
+// Called on every zoom change (see applyHallTransform) plus once right
+// after a hall's labels are first built -- shows/hides each label group
+// based on whether the current zoom has reached its own reveal threshold.
+function updateLabelVisibility() {
+  const svg = document.getElementById("hall-plan-svg");
+  if (!svg) return;
+  svg.querySelectorAll(".hallplan-label-group").forEach((g) => {
+    const reveal = parseFloat(g.dataset.reveal || "1");
+    g.style.display = hallZoom.scale >= reveal - 0.001 ? "" : "none";
+  });
 }
 
 // Door "at"/"span" are documented (outline.json's own note field) as
@@ -867,6 +911,7 @@ function applyHallTransform() {
   const inner = document.getElementById("hall-canvas-inner");
   inner.style.transform = `translate(${hallZoom.x}px, ${hallZoom.y}px) scale(${hallZoom.scale})`;
   document.getElementById("hall-zoom-reset").classList.toggle("show", hallZoom.scale > 1.02);
+  updateLabelVisibility();
 }
 
 function resetHallZoom() {
