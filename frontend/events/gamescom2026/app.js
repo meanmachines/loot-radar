@@ -394,6 +394,19 @@ async function renderRealHallPlan(hallId, fileId) {
     return !hasNames && allTokensGrouped;
   }
 
+  // Label placement is a second pass over the whole hall, not decided
+  // per-booth in isolation: real gap found live after the fixed-size
+  // badge fix landed -- badges were uniform, but dense clusters (e.g.
+  // Hall 10's "B-085"/"B-083"/"B-089" cluster) still had adjacent
+  // stands' centers closer together than one badge's own width, so
+  // same-size badges collided into the same illegible mess the
+  // uniform-size fix was meant to end. Collecting every eligible label
+  // first and placing them by priority -- named (real exhibitor) booths
+  // before unnamed, larger booths before smaller -- means a collision
+  // silently drops the LOWER-priority badge instead of drawing both on
+  // top of each other.
+  const labelCandidates = [];
+
   for (const stand of plan.stands || []) {
     const shifted = stand.poly.map(([x, y]) => [x + margin.w, y + margin.n]);
     const named = stand.names && stand.names.length > 0;
@@ -407,7 +420,37 @@ async function renderRealHallPlan(hallId, fileId) {
     });
     svg.appendChild(poly);
 
-    if (!isGroupZoneStand(stand)) appendStandLabels(svg, stand, shifted);
+    if (isGroupZoneStand(stand)) continue;
+    const b = boundsOf(shifted);
+    const boxW = b.maxX - b.minX;
+    const boxH = b.maxY - b.minY;
+    if (Math.min(boxW, boxH) < 3.5) continue;
+    labelCandidates.push({
+      stand,
+      cx: (b.minX + b.maxX) / 2,
+      cy: (b.minY + b.maxY) / 2,
+      named,
+      area: boxW * boxH,
+    });
+  }
+
+  labelCandidates.sort((a, b) => (b.named - a.named) || b.area - a.area);
+
+  const LABEL_GAP = 0.6;
+  const placedRects = [];
+  for (const c of labelCandidates) {
+    const rect = {
+      minX: c.cx - STAND_BADGE_W / 2 - LABEL_GAP,
+      maxX: c.cx + STAND_BADGE_W / 2 + LABEL_GAP,
+      minY: c.cy - STAND_BADGE_H / 2 - LABEL_GAP,
+      maxY: c.cy + STAND_BADGE_H / 2 + LABEL_GAP,
+    };
+    const collides = placedRects.some(
+      (r) => rect.minX < r.maxX && rect.maxX > r.minX && rect.minY < r.maxY && rect.maxY > r.minY
+    );
+    if (collides) continue;
+    placedRects.push(rect);
+    appendStandLabels(svg, c.cx, c.cy, c.stand.nr);
   }
 }
 
@@ -448,19 +491,10 @@ function fitLabelText(text) {
   return text.slice(0, Math.max(1, maxChars - 1)) + "…";
 }
 
-function appendStandLabels(svg, stand, shifted) {
-  const b = boundsOf(shifted);
-  const boxW = b.maxX - b.minX;
-  const boxH = b.maxY - b.minY;
-  // Skip only booths too small to sensibly carry even a compact fixed
-  // badge -- a badge visibly overlapping its own tiny booth's edges reads
-  // worse than no badge at all, but it no longer needs to actually FIT
-  // the box the way scaled-to-fit text did.
-  if (Math.min(boxW, boxH) < 3.5) return;
-
-  const cx = (b.minX + b.maxX) / 2;
-  const cy = (b.minY + b.maxY) / 2;
-
+// cx/cy: badge center, already resolved by the caller's collision pass
+// against every other candidate badge in the hall -- this function just
+// draws at the given point, it no longer decides whether to.
+function appendStandLabels(svg, cx, cy, nr) {
   const badge = svgEl("rect", {
     x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
     width: STAND_BADGE_W, height: STAND_BADGE_H,
@@ -474,7 +508,7 @@ function appendStandLabels(svg, stand, shifted) {
     class: "hallplan-stand-label",
     "font-size": STAND_BADGE_FONT,
   });
-  boothLabel.textContent = fitLabelText(stand.nr);
+  boothLabel.textContent = fitLabelText(nr);
   svg.appendChild(boothLabel);
 }
 
