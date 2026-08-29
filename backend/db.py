@@ -44,6 +44,12 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(provider, provider_user_id)
 );
+-- Email/password sign-in reuses this same table (provider='email',
+-- provider_user_id=the lowercased email itself, so the existing
+-- UNIQUE(provider, provider_user_id) constraint already prevents a
+-- duplicate signup with no separate index needed) -- password_hash is
+-- NULL for every OAuth-provider row and only ever set for provider='email'.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 
 CREATE TABLE IF NOT EXISTS loot_entries (
     id SERIAL PRIMARY KEY,
@@ -392,6 +398,37 @@ async def get_user(user_id: int) -> Optional[dict[str, Any]]:
         row = await conn.fetchrow(
             "SELECT id, provider, email, display_name, avatar_url, extract(epoch FROM created_at)::float8 AS created_at FROM users WHERE id=$1",
             user_id,
+        )
+    return dict(row) if row else None
+
+
+async def create_email_user(email: str, password_hash: str, display_name: Optional[str]) -> Optional[dict[str, Any]]:
+    """Returns None on a duplicate email (caught here, not left to the
+    caller, so auth.py never has to import asyncpg just to catch its
+    exception type) -- the caller turns that into a clean 409."""
+    async with pool().acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO users (provider, provider_user_id, email, display_name, password_hash)
+                VALUES ('email', $1, $1, $2, $3)
+                RETURNING id, provider, email, display_name, avatar_url, extract(epoch FROM created_at)::float8 AS created_at
+                """,
+                email, display_name, password_hash,
+            )
+        except asyncpg.UniqueViolationError:
+            return None
+    return dict(row)
+
+
+async def get_email_auth(email: str) -> Optional[dict[str, Any]]:
+    """id + password_hash for verifying a login attempt -- the ONLY place
+    password_hash ever leaves the database; get_user/create_email_user both
+    omit it from what they return, since those responses reach the client."""
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, password_hash FROM users WHERE provider='email' AND provider_user_id=$1",
+            email,
         )
     return dict(row) if row else None
 

@@ -21,14 +21,17 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from typing import Optional
 from urllib.parse import urlencode
 
+import bcrypt
 import httpx
 import jwt
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 
 import db
 
@@ -38,6 +41,23 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
 SESSION_COOKIE = "lr_session"
 SESSION_TTL_S = 90 * 24 * 3600  # 90 days -- "sign in once, stay in" for a platform meant to outlive one event
 STATE_TTL_S = 600  # 10 minutes -- just long enough to get through a real OAuth consent screen
+
+# The whole site is gated behind sign-in now (see require_user below and
+# main.py's own use of it) -- email signup/login are consequently exposed
+# to anyone who can reach the site at all, not just existing users, so both
+# get their own rate limit keyed by IP. Small and duplicated from main.py's
+# own _client_key rather than shared, matching this codebase's existing
+# preference for small self-contained modules over a cross-file utils
+# import for a five-line helper.
+def _client_key(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+_email_auth_limiter = db.RateLimiter(max_per_window=20, window_seconds=3600)
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -105,6 +125,94 @@ def current_user_id(request: Request) -> Optional[int]:
         return None
     claims = _verify(token)
     return claims.get("uid") if claims else None
+
+
+def require_user(request: Request) -> int:
+    """FastAPI dependency for the site-wide sign-in gate (see main.py's own
+    Depends(auth.require_user) on every loot/giveaway/leaderboard/events
+    route) -- raises a clean 401 instead of returning None, so a gated
+    route fails loudly rather than silently treating "not signed in" as
+    "signed in as nobody."
+    """
+    user_id = current_user_id(request)
+    if user_id is None:
+        raise HTTPException(401, "sign in required")
+    return user_id
+
+
+# ---------------------------------------------------------------------------
+# Email/password sign-in -- for anyone who doesn't want to use Google or
+# GitHub. JSON POSTs, not the OAuth routes' redirect dance, since there's
+# no third party to round-trip through: the frontend calls these directly
+# and gets the session cookie back on the same response.
+# ---------------------------------------------------------------------------
+
+
+class EmailSignupIn(BaseModel):
+    email: str
+    password: str = Field(min_length=8, max_length=128)
+    display_name: Optional[str] = None
+    device_id: str
+
+
+class EmailLoginIn(BaseModel):
+    email: str
+    password: str
+    device_id: str
+
+
+@router.post("/email/signup")
+async def email_signup(body: EmailSignupIn, request: Request, response: Response):
+    if not SESSION_SECRET:
+        raise HTTPException(503, "sign-in isn't configured yet")
+    if not _email_auth_limiter.allow(_client_key(request)):
+        raise HTTPException(429, "too many signup attempts -- try again in a bit")
+    email = body.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(400, "enter a valid email address")
+
+    password_hash = bcrypt.hashpw(body.password.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
+    display_name = (body.display_name or "").strip()[:60] or None
+    user = await db.create_email_user(email, password_hash, display_name)
+    if user is None:
+        raise HTTPException(409, "an account with that email already exists -- try logging in instead")
+
+    await db.link_device_to_user(body.device_id, user["id"])
+    session_token = _sign({"uid": user["id"]}, SESSION_TTL_S)
+    response.set_cookie(
+        SESSION_COOKIE, session_token,
+        max_age=SESSION_TTL_S, httponly=True, secure=True, samesite="lax", path="/",
+    )
+    return {"user": user}
+
+
+@router.post("/email/login")
+async def email_login(body: EmailLoginIn, request: Request, response: Response):
+    if not SESSION_SECRET:
+        raise HTTPException(503, "sign-in isn't configured yet")
+    if not _email_auth_limiter.allow(_client_key(request)):
+        raise HTTPException(429, "too many login attempts -- try again in a bit")
+    email = body.email.strip().lower()
+
+    auth_row = await db.get_email_auth(email)
+    # Same "incorrect email or password" message whether the email doesn't
+    # exist, has no password (an OAuth-only account with the same email
+    # would be a DIFFERENT row here -- provider/provider_user_id differ, so
+    # this genuinely can't happen, but a defensive check costs nothing), or
+    # the password itself is wrong -- never reveal which case it was.
+    if not auth_row or not auth_row["password_hash"] or not bcrypt.checkpw(
+        body.password.encode("utf-8"), auth_row["password_hash"].encode("utf-8")
+    ):
+        raise HTTPException(401, "incorrect email or password")
+
+    user = await db.get_user(auth_row["id"])
+    await db.link_device_to_user(body.device_id, user["id"])
+    session_token = _sign({"uid": user["id"]}, SESSION_TTL_S)
+    response.set_cookie(
+        SESSION_COOKIE, session_token,
+        max_age=SESSION_TTL_S, httponly=True, secure=True, samesite="lax", path="/",
+    )
+    return {"user": user}
 
 
 @router.get("/{provider}/login")

@@ -30,6 +30,12 @@ function renderEvents(events) {
 }
 
 async function init() {
+  // Site-wide sign-in gate (see auth-gate.js's own module comment) -- the
+  // portal itself is gated too, not just the event apps, so this fetches
+  // nothing and shows nothing beyond the gate until signed in.
+  const signedIn = await window.ensureAuthGate();
+  if (!signedIn) return;
+
   try {
     const res = await fetch("/api/event-catalog");
     const events = await res.json();

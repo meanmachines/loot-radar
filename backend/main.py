@@ -2,6 +2,15 @@
 loot map API. See db.py's own module docstring for the single-process
 assumption this whole app is built on (in-memory rate limiter + SSE
 broadcaster live in this one process).
+
+Every route below that returns real app data (event catalog, loot,
+giveaways, leaderboard, the SSE stream, photos) requires a signed-in
+session via Depends(auth.require_user) -- the site is gated behind sign-up
+now, not just gated in the frontend UI (see auth.py's own require_user and
+new email/password routes, and each frontend's auth-gate.js, which shows
+a full-screen sign-in wall before ever calling any of these). /health,
+/ready, /version, and everything under /auth/ stay open, since you need
+those to sign in at all or for infra to keep working.
 """
 
 from __future__ import annotations
@@ -14,7 +23,7 @@ import re
 import time
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -87,11 +96,15 @@ async def version():
 
 
 @app.get("/event-catalog")
-async def event_catalog():
+async def event_catalog(user_id: int = Depends(auth.require_user)):
     # Named distinctly from /events (the SSE live-update stream, already
     # taken) -- what the portal at frontend/portal/ fetches to render its
     # event cards. See events_registry.py's own module docstring for why
     # this is a plain in-code dict rather than a database table.
+    #
+    # Gated like everything else (see auth.require_user's own docstring
+    # and this file's module note on the site-wide sign-in wall) -- the
+    # portal itself shows the auth gate before ever calling this.
     return public_catalog()
 
 
@@ -122,7 +135,7 @@ async def _broadcast(event: str, data: dict) -> None:
 
 
 @app.get("/events")
-async def events(event_id: str = "gamescom2026"):
+async def events(event_id: str = "gamescom2026", user_id: int = Depends(auth.require_user)):
     # event_id is accepted for a future server-side subscriber split (see
     # frontend/events/gamescom2026/app.js's own comment on why filtering
     # happens client-side today instead: one broadcaster, every payload
@@ -154,7 +167,7 @@ async def events(event_id: str = "gamescom2026"):
 
 
 @app.get("/loot")
-async def list_loot(event_id: str = "gamescom2026"):
+async def list_loot(event_id: str = "gamescom2026", user_id: int = Depends(auth.require_user)):
     _valid_event(event_id)
     return await db.list_active_loot(event_id)
 
@@ -171,6 +184,7 @@ async def create_loot(
     event_id: str = "gamescom2026",
     submitted_by: Optional[str] = None,
     photo: Optional[UploadFile] = None,
+    user_id: int = Depends(auth.require_user),
 ):
     _valid_event(event_id)
     if hall_id not in EVENT_HALL_IDS[event_id]:
@@ -207,21 +221,21 @@ async def create_loot(
         device_id=device_id,
         photo=photo_bytes,
         photo_mime=photo_mime,
-        user_id=auth.current_user_id(request),
+        user_id=user_id,
     )
     await _broadcast("loot.created", entry)
     return entry
 
 
 @app.get("/my/loot")
-async def my_loot(request: Request, event_id: str = "gamescom2026"):
+async def my_loot(request: Request, event_id: str = "gamescom2026", user_id: int = Depends(auth.require_user)):
     _valid_event(event_id)
     device_id = _device_id(request)
-    return await db.list_my_loot(event_id, user_id=auth.current_user_id(request), device_id=device_id)
+    return await db.list_my_loot(event_id, user_id=user_id, device_id=device_id)
 
 
 @app.get("/loot/{loot_id}/photo")
-async def loot_photo(loot_id: int):
+async def loot_photo(loot_id: int, user_id: int = Depends(auth.require_user)):
     result = await db.get_photo(loot_id)
     if result is None:
         raise HTTPException(404, "no photo")
@@ -238,7 +252,7 @@ class VoteIn(BaseModel):
 
 
 @app.post("/loot/{loot_id}/vote")
-async def vote_loot(loot_id: int, body: VoteIn, request: Request):
+async def vote_loot(loot_id: int, body: VoteIn, request: Request, user_id: int = Depends(auth.require_user)):
     if body.vote_type not in ("confirm", "dispute"):
         raise HTTPException(400, "vote_type must be confirm or dispute")
     device_id = _device_id(request)
@@ -256,7 +270,7 @@ class RatingIn(BaseModel):
 
 
 @app.post("/loot/{loot_id}/rate")
-async def rate_loot(loot_id: int, body: RatingIn, request: Request):
+async def rate_loot(loot_id: int, body: RatingIn, request: Request, user_id: int = Depends(auth.require_user)):
     device_id = _device_id(request)
     if not _vote_limiter.allow(_client_key(request)):
         raise HTTPException(429, "too many ratings -- slow down")
@@ -275,7 +289,7 @@ async def rate_loot(loot_id: int, body: RatingIn, request: Request):
 
 
 @app.get("/giveaways")
-async def list_giveaways(event_id: str = "gamescom2026"):
+async def list_giveaways(event_id: str = "gamescom2026", user_id: int = Depends(auth.require_user)):
     _valid_event(event_id)
     return await db.list_giveaways(event_id)
 
@@ -293,6 +307,7 @@ async def create_giveaway(
     event_id: str = "gamescom2026",
     notes: Optional[str] = None,
     submitted_by: Optional[str] = None,
+    user_id: int = Depends(auth.require_user),
 ):
     _valid_event(event_id)
     if hall_id not in EVENT_HALL_IDS[event_id]:
@@ -328,7 +343,7 @@ async def create_giveaway(
         pin_y=pin_y,
         submitted_by=(submitted_by or "").strip()[:60] or None,
         device_id=device_id,
-        user_id=auth.current_user_id(request),
+        user_id=user_id,
     )
     await _broadcast("giveaway.created", entry)
     return entry
@@ -340,7 +355,7 @@ async def create_giveaway(
 
 
 @app.get("/leaderboard")
-async def leaderboard(event_id: str = "gamescom2026"):
+async def leaderboard(event_id: str = "gamescom2026", user_id: int = Depends(auth.require_user)):
     _valid_event(event_id)
     top_loot, top_halls, top_finders = await asyncio.gather(
         db.leaderboard_top_loot(event_id),

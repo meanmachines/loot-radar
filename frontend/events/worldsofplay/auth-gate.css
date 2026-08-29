@@ -1,0 +1,202 @@
+/* Shared full-site sign-in gate -- copied into portal + every event dir,
+   same convention as styles.css/icons.js. Fully self-contained (its own
+   --ag-* custom properties, its own .btn/.oauth-btn/.spinner) rather than
+   relying on the host page's own design tokens/classes -- the portal's
+   styles.css is missing several of the events' own tokens (--glass,
+   --radius, --danger, ...) and this component needs to look identical and
+   work correctly on all three pages regardless of what each one already
+   defines. */
+
+#auth-gate {
+  --ag-bg: #0a0b0d;
+  --ag-glass: rgba(255, 255, 255, 0.04);
+  --ag-glass-strong: rgba(255, 255, 255, 0.07);
+  --ag-border: rgba(255, 255, 255, 0.08);
+  --ag-border-strong: rgba(255, 255, 255, 0.14);
+  --ag-text: #eef0f3;
+  --ag-text-muted: #8d94a0;
+  --ag-text-dim: #565c66;
+  --ag-primary: #4f7cff;
+  --ag-primary-dark: #3a5fd9;
+  --ag-success: #35c98c;
+  --ag-danger: #ef5a6c;
+  --ag-radius: 18px;
+  --ag-radius-sm: 12px;
+  --ag-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", system-ui, sans-serif;
+
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ag-bg);
+  overflow: hidden;
+  padding: 1.2rem;
+  font-family: var(--ag-font);
+}
+#auth-gate-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.auth-gate-card {
+  position: relative;
+  z-index: 1;
+  width: min(400px, 100%);
+  max-height: calc(100dvh - 2.4rem);
+  overflow-y: auto;
+  background: rgba(10, 11, 13, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--ag-border-strong);
+  border-radius: var(--ag-radius);
+  padding: 1.9rem 1.7rem;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  color: var(--ag-text);
+}
+.auth-gate-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  font-size: 0.82rem;
+  margin-bottom: 1.5rem;
+}
+.auth-gate-brand .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ag-success);
+  box-shadow: 0 0 8px var(--ag-success);
+  flex-shrink: 0;
+}
+.auth-gate-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--ag-text);
+}
+.auth-gate-sub {
+  font-size: 0.85rem;
+  color: var(--ag-text-muted);
+  margin: 0 0 1.5rem;
+  line-height: 1.55;
+}
+.auth-gate-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 1.15rem 0;
+  color: var(--ag-text-dim);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.auth-gate-divider::before,
+.auth-gate-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ag-border);
+}
+#auth-gate-oauth {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.auth-gate-error {
+  font-size: 0.78rem;
+  color: var(--ag-danger);
+  min-height: 1.1em;
+  margin: -0.3rem 0 0.75rem;
+  line-height: 1.4;
+}
+.auth-gate-toggle {
+  display: block;
+  width: 100%;
+  text-align: center;
+  background: none;
+  border: none;
+  color: var(--ag-text-muted);
+  font-size: 0.78rem;
+  margin-top: 0.9rem;
+  cursor: pointer;
+  padding: 0.4rem;
+  font-family: inherit;
+}
+.auth-gate-toggle:hover { color: var(--ag-text); }
+
+#auth-gate .field { margin-bottom: 0.8rem; }
+#auth-gate input[type="email"],
+#auth-gate input[type="password"],
+#auth-gate input[type="text"] {
+  width: 100%;
+  background: var(--ag-glass);
+  border: 1px solid var(--ag-border);
+  border-radius: var(--ag-radius-sm);
+  color: var(--ag-text);
+  padding: 0.68rem 0.85rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+#auth-gate input:focus { border-color: var(--ag-primary); }
+
+#auth-gate .btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.72rem 1.2rem;
+  font-weight: 700;
+  font-size: 0.87rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-family: inherit;
+  transition: transform 0.12s ease, filter 0.15s ease;
+}
+#auth-gate .btn:active { transform: scale(0.97); }
+#auth-gate .btn:disabled { opacity: 0.55; pointer-events: none; }
+#auth-gate .btn-primary { background: var(--ag-primary); color: #fff; }
+#auth-gate .btn-primary:active { background: var(--ag-primary-dark); }
+
+#auth-gate .oauth-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  background: var(--ag-glass);
+  border: 1px solid var(--ag-border);
+  border-radius: var(--ag-radius-sm);
+  color: var(--ag-text);
+  padding: 0.75rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+#auth-gate .oauth-btn:active { background: var(--ag-glass-strong); }
+#auth-gate .oauth-btn svg { width: 19px; height: 19px; flex-shrink: 0; }
+
+#auth-gate .spinner {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: auth-gate-spin 0.7s linear infinite;
+}
+@keyframes auth-gate-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 380px) {
+  .auth-gate-card { padding: 1.5rem 1.25rem; }
+  .auth-gate-title { font-size: 1.3rem; }
+}

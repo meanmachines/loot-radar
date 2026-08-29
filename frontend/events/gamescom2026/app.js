@@ -1934,6 +1934,12 @@ async function refreshAll() {
 }
 
 (async function init() {
+  // Site-wide sign-in gate (see auth-gate.js's own module comment) -- runs
+  // before any data fetch or SSE connect. A successful sign-in reloads the
+  // page, so returning here just leaves the gate showing.
+  const signedIn = await window.ensureAuthGate();
+  if (!signedIn) return;
+
   renderLegend();
   try {
     await loadHallplanIndex();
