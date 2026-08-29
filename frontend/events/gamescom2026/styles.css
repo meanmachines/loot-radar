@@ -326,7 +326,19 @@ button { font-family: inherit; }
 #hall-canvas-inner {
   position: absolute; inset: 0;
   touch-action: none;
+  transform-origin: 0 0;
+  will-change: transform;
 }
+#hall-zoom-reset {
+  position: absolute;
+  left: 0.7rem; bottom: 0.7rem;
+  z-index: 16;
+  background: rgba(10,11,13,0.85);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+#hall-zoom-reset.show { opacity: 1; pointer-events: auto; }
 .hall-pin {
   position: absolute;
   width: 30px; height: 30px;

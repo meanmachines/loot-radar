@@ -595,6 +595,7 @@ async function openHall(hallId) {
   if (!hall) return;
   openHallId = hallId;
   pendingAction = null;
+  resetHallZoom();
   document.getElementById("hall-sheet-title").textContent = `Hall ${hall.number}`;
   document.getElementById("hall-sheet-sub").textContent = hall.category;
   document.getElementById("hall-sheet").classList.add("open");
@@ -618,6 +619,7 @@ async function openHall(hallId) {
 
 async function openHallLevel(hallId, fileId) {
   updateLevelSwitcherActive(fileId);
+  resetHallZoom(); // switching floors resets the view -- the old zoom/pan has no reason to still make sense on a different level's own layout
   try {
     await renderRealHallPlan(hallId, fileId);
   } catch (e) {
@@ -706,7 +708,153 @@ function clickToNormalizedPosition(e) {
   return { x: clamp01((e.clientX - rect.left) / rect.width), y: clamp01((e.clientY - rect.top) / rect.height) };
 }
 
+// ---------------------------------------------------------------------------
+// Pinch-zoom + pan on the hall canvas -- real usability gap found live: a
+// dense real hall (100+ booths, confirmed against the actual vendored
+// data) crammed into one fixed-size viewport makes individual booths too
+// small to read or tap precisely on a phone, screenshots included. A
+// single CSS transform on #hall-canvas-inner moves BOTH the SVG floor
+// plan and the absolutely-positioned loot pins together (they're both its
+// children), so this needs no changes to how either renders -- and
+// clickToNormalizedPosition already resolves taps through the SVG's own
+// getScreenCTM(), which reflects whatever transform is actually on
+// screen, so tap-to-place-pin and booth taps stay correct at any zoom/pan
+// with no changes there either.
+// ---------------------------------------------------------------------------
+
+const HALL_ZOOM_MIN = 1;
+const HALL_ZOOM_MAX = 5;
+let hallZoom = { scale: 1, x: 0, y: 0 };
+let hallGesture = null; // active pointer/touch gesture state, or null
+
+function applyHallTransform() {
+  const inner = document.getElementById("hall-canvas-inner");
+  inner.style.transform = `translate(${hallZoom.x}px, ${hallZoom.y}px) scale(${hallZoom.scale})`;
+  document.getElementById("hall-zoom-reset").classList.toggle("show", hallZoom.scale > 1.02);
+}
+
+function resetHallZoom() {
+  hallZoom = { scale: 1, x: 0, y: 0 };
+  applyHallTransform();
+}
+
+function clampHallPan() {
+  const wrap = document.getElementById("hall-canvas-wrap");
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  // How far content can drift before empty space would show past the
+  // wrap's own edge, at the current scale.
+  const maxX = Math.max(0, (hallZoom.scale - 1) * w);
+  const maxY = Math.max(0, (hallZoom.scale - 1) * h);
+  hallZoom.x = Math.min(0, Math.max(-maxX, hallZoom.x));
+  hallZoom.y = Math.min(0, Math.max(-maxY, hallZoom.y));
+}
+
+// Zooms so the point under (screenX, screenY) stays visually fixed --
+// standard "zoom toward cursor/pinch center" feel, not zoom-from-corner.
+function zoomHallAt(screenX, screenY, newScale) {
+  const wrap = document.getElementById("hall-canvas-wrap");
+  const rect = wrap.getBoundingClientRect();
+  const localX = screenX - rect.left;
+  const localY = screenY - rect.top;
+  const clamped = Math.max(HALL_ZOOM_MIN, Math.min(HALL_ZOOM_MAX, newScale));
+  const ratio = clamped / hallZoom.scale;
+  hallZoom.x = localX - (localX - hallZoom.x) * ratio;
+  hallZoom.y = localY - (localY - hallZoom.y) * ratio;
+  hallZoom.scale = clamped;
+  clampHallPan();
+  applyHallTransform();
+}
+
+document.getElementById("hall-canvas-wrap").addEventListener("wheel", (e) => {
+  e.preventDefault();
+  zoomHallAt(e.clientX, e.clientY, hallZoom.scale * (e.deltaY < 0 ? 1.18 : 1 / 1.18));
+}, { passive: false });
+
+function touchDist(t0, t1) {
+  return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+}
+function touchMid(t0, t1) {
+  return { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+}
+
+const HALL_WRAP = document.getElementById("hall-canvas-wrap");
+
+HALL_WRAP.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 2) {
+    hallGesture = {
+      mode: "pinch",
+      startDist: touchDist(e.touches[0], e.touches[1]),
+      startScale: hallZoom.scale,
+      moved: true,
+    };
+  } else if (e.touches.length === 1) {
+    hallGesture = {
+      mode: "pan",
+      startX: e.touches[0].clientX, startY: e.touches[0].clientY,
+      originX: hallZoom.x, originY: hallZoom.y,
+      moved: false,
+    };
+  }
+}, { passive: true });
+
+HALL_WRAP.addEventListener("touchmove", (e) => {
+  if (!hallGesture) return;
+  if (hallGesture.mode === "pinch" && e.touches.length === 2) {
+    e.preventDefault();
+    const dist = touchDist(e.touches[0], e.touches[1]);
+    const mid = touchMid(e.touches[0], e.touches[1]);
+    zoomHallAt(mid.x, mid.y, hallGesture.startScale * (dist / hallGesture.startDist));
+  } else if (hallGesture.mode === "pan" && e.touches.length === 1) {
+    const dx = e.touches[0].clientX - hallGesture.startX;
+    const dy = e.touches[0].clientY - hallGesture.startY;
+    if (Math.hypot(dx, dy) > 6) hallGesture.moved = true;
+    if (hallZoom.scale > 1.02 && hallGesture.moved) {
+      e.preventDefault();
+      hallZoom.x = hallGesture.originX + dx;
+      hallZoom.y = hallGesture.originY + dy;
+      clampHallPan();
+      applyHallTransform();
+    }
+  }
+}, { passive: false });
+
+HALL_WRAP.addEventListener("touchend", () => {
+  // A real drag (moved past the threshold) must not also register as a
+  // tap-to-place-pin/tap-to-track on the click event that follows a touch
+  // sequence -- suppressHallClick consumes exactly one click for that.
+  if (hallGesture && hallGesture.moved && hallGesture.mode === "pan") suppressHallClick = true;
+  hallGesture = null;
+});
+
+// Desktop mouse-drag pan -- same drag-vs-click distinction as touch above,
+// via the mousedown/mousemove/mouseup sequence instead of touch events.
+let mouseDragState = null;
+HALL_WRAP.addEventListener("mousedown", (e) => {
+  mouseDragState = { startX: e.clientX, startY: e.clientY, originX: hallZoom.x, originY: hallZoom.y, moved: false };
+});
+window.addEventListener("mousemove", (e) => {
+  if (!mouseDragState) return;
+  const dx = e.clientX - mouseDragState.startX;
+  const dy = e.clientY - mouseDragState.startY;
+  if (Math.hypot(dx, dy) > 6) mouseDragState.moved = true;
+  if (hallZoom.scale > 1.02 && mouseDragState.moved) {
+    hallZoom.x = mouseDragState.originX + dx;
+    hallZoom.y = mouseDragState.originY + dy;
+    clampHallPan();
+    applyHallTransform();
+  }
+});
+window.addEventListener("mouseup", () => {
+  if (mouseDragState && mouseDragState.moved) suppressHallClick = true;
+  mouseDragState = null;
+});
+
+document.getElementById("hall-zoom-reset").addEventListener("click", resetHallZoom);
+
+let suppressHallClick = false;
+
 document.getElementById("hall-canvas-inner").addEventListener("click", (e) => {
+  if (suppressHallClick) { suppressHallClick = false; return; }
   if (pendingAction === "placing-loot") {
     pendingPin = clickToNormalizedPosition(e);
     pendingAction = null;

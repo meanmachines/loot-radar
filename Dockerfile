@@ -9,6 +9,20 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 
 COPY backend/ backend/
 COPY frontend/ frontend/
+# Real bug found live: Cloudflare's edge overrides this app's own
+# Cache-Control: no-cache on .js/.css (confirmed live -- the origin sends
+# no-cache, Cloudflare serves max-age=14400 anyway, a default edge
+# behavior for common static-asset extensions this app has no dashboard
+# access to change). A deploy landing new JS/CSS was staying invisible to
+# real visitors -- and to this session's own browser tab -- for up to 4
+# hours. Query-string cache-busting sidesteps the whole problem instead of
+# fighting Cloudflare's cache: each build gets asset URLs Cloudflare has
+# never seen before, so the old cached copies just go unreferenced rather
+# than needing to be invalidated.
+RUN BUILD_ID=$(date +%s) && \
+    for f in frontend/portal/index.html frontend/events/gamescom2026/index.html; do \
+      sed -i "s/\.css\"/.css?v=${BUILD_ID}\"/g; s/\.js\"/.js?v=${BUILD_ID}\"/g" "$f"; \
+    done
 COPY nginx.conf /etc/nginx/sites-available/default
 # Debian's stock nginx.conf events block (worker_connections 768) is far
 # below what "thousands of simultaneous users, each holding a live SSE
