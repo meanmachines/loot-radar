@@ -152,6 +152,33 @@ function renderVenueMap() {
   else renderVenueMap2D();
 }
 
+// The venue map's own SVG scales EVERYTHING inside its viewBox uniformly
+// with its rendered CSS width -- including font-size and radii, whether
+// given in "px" or bare numbers, since both are just user-space lengths
+// to an SVG viewBox (confirmed live: a hall's own number rendered a
+// measured 7 real screen pixels tall on a real 390px phone -- the
+// intended device this app is actually used on -- versus looking fine on
+// the ultrawide desktop window this whole session had actually been
+// testing against without realizing it). A CSS transform (like the hall
+// canvas's own pinch-zoom) is a different mechanism and doesn't have this
+// problem; a plain width:100%+viewBox SVG does. venueScale is recomputed
+// at the top of every venue-map render pass from the SVG's OWN actual
+// rendered width divided by its own viewBox width, and vpx() converts a
+// desired constant on-screen pixel size into whatever viewBox user-units
+// currently produce it -- so a hall number (or a badge, or a hotspot dot)
+// renders at roughly the same real screen size on a phone as on a 4K
+// desktop monitor, the way any real map app's own labels behave, instead
+// of shrinking into illegibility right along with the hall blocks.
+let venueScale = 1;
+function computeVenueScale(viewBoxWidth) {
+  const wrap = document.getElementById("venue-svg-wrap");
+  const pixelWidth = (wrap && wrap.clientWidth) || 640;
+  venueScale = viewBoxWidth > 0 ? pixelWidth / viewBoxWidth : 1;
+}
+function vpx(desiredScreenPx) {
+  return desiredScreenPx / venueScale;
+}
+
 function hallLootBadge(hall, cx, cy, g) {
   // Loot-count badge -- pulses when the hall has any active entries so a
   // scan of the whole venue shows where loot has been reported at a
@@ -166,11 +193,12 @@ function hallLootBadge(hall, cx, cy, g) {
   // raw count.
   const rankColor = rankTierColor(hallRankById.get(hall.id));
   const ringColor = rankColor || hall.color;
-  const ping = svgEl("circle", { cx, cy, r: 14, class: "hall-badge-ping animate", stroke: ringColor });
+  const r = vpx(11);
+  const ping = svgEl("circle", { cx, cy, r, class: "hall-badge-ping animate", stroke: ringColor });
   g.appendChild(ping);
-  const bg = svgEl("circle", { cx, cy, r: 14, class: "hall-badge-bg" + (rankColor ? " ranked" : ""), stroke: ringColor });
+  const bg = svgEl("circle", { cx, cy, r, class: "hall-badge-bg" + (rankColor ? " ranked" : ""), stroke: ringColor });
   g.appendChild(bg);
-  const countText = svgEl("text", { x: cx, y: cy + 1, class: "hall-badge-count" });
+  const countText = svgEl("text", { x: cx, y: cy + 1, class: "hall-badge-count", "font-size": vpx(14) });
   countText.textContent = String(count);
   g.appendChild(countText);
 }
@@ -188,7 +216,7 @@ function renderVenueHotspots(parent, hall, project) {
     const p = project(entry.pin_x, entry.pin_y);
     const tier = rankTierColor(lootRankById.get(entry.id));
     const dot = svgEl("circle", {
-      cx: p.x, cy: p.y, r: tier ? 5 : 3.2,
+      cx: p.x, cy: p.y, r: vpx(tier ? 5 : 3.2),
       class: "venue-hotspot" + (tier ? " ranked" : ""),
       fill: tier || "#ffffff",
     });
@@ -204,6 +232,7 @@ function renderVenueHotspots(parent, hall, project) {
 function renderVenueMap2D() {
   const svg = document.getElementById("venue-svg");
   svg.setAttribute("viewBox", `0 0 ${VENUE_VIEWBOX.w} ${VENUE_VIEWBOX.h}`);
+  computeVenueScale(VENUE_VIEWBOX.w);
   svg.innerHTML = "";
 
   for (const hall of HALLS) {
@@ -236,10 +265,10 @@ function renderVenueMap2D() {
 
     const cx = hall.rect.x + hall.rect.w / 2;
     const cy = hall.rect.y + hall.rect.h / 2;
-    const label = svgEl("text", { x: cx, y: cy - 6, class: "hall-label" });
+    const label = svgEl("text", { x: cx, y: cy - 6, class: "hall-label", "font-size": vpx(24) });
     label.textContent = hall.number;
     g.appendChild(label);
-    const sub = svgEl("text", { x: cx, y: cy + 20, class: "hall-sub" });
+    const sub = svgEl("text", { x: cx, y: cy + 20, class: "hall-sub", "font-size": vpx(11) });
     sub.textContent = hall.category.length > 20 ? hall.name : hall.category;
     g.appendChild(sub);
 
@@ -252,7 +281,7 @@ function renderVenueMap2D() {
   }
 
   for (const ent of ENTRANCES) {
-    const t = svgEl("text", { x: ent.x, y: ent.y, class: "entrance-label" });
+    const t = svgEl("text", { x: ent.x, y: ent.y, class: "entrance-label", "font-size": vpx(11) });
     t.textContent = ent.label + " entrance";
     svg.appendChild(t);
   }
@@ -316,7 +345,9 @@ function renderVenueMapIso() {
   const minY = Math.min(...pts.map((p) => p.y));
   const maxY = Math.max(...pts.map((p) => p.y));
   const pad = 24;
-  svg.setAttribute("viewBox", `${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`);
+  const viewBoxW = maxX - minX + pad * 2;
+  svg.setAttribute("viewBox", `${minX - pad} ${minY - pad} ${viewBoxW} ${maxY - minY + pad * 2}`);
+  computeVenueScale(viewBoxW);
   svg.innerHTML = "";
 
   const poly = (points) => points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
@@ -336,7 +367,7 @@ function renderVenueMapIso() {
     g.appendChild(face);
 
     const centerTop = { x: (top[0].x + top[2].x) / 2, y: (top[0].y + top[2].y) / 2 };
-    const label = svgEl("text", { x: centerTop.x, y: centerTop.y - 2, class: "hall-label", style: "font-size:20px" });
+    const label = svgEl("text", { x: centerTop.x, y: centerTop.y - 2, class: "hall-label", "font-size": vpx(20) });
     label.textContent = hall.number;
     g.appendChild(label);
 

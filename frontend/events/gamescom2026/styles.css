@@ -188,9 +188,12 @@ button { font-family: inherit; }
      floor. That forced horizontal scrolling just to see the WHOLE venue
      map on load, hiding half of it by default -- the opposite of "clean
      at a glance." Letting the SVG's own width:100% shrink to fit instead
-     means the full venue is visible immediately; hall number labels stay
-     a fixed CSS px size (see .hall-label etc.) so they don't shrink into
-     illegibility along with the blocks. */
+     means the full venue is visible immediately -- see app.js's own
+     venueScale/vpx() for how hall labels/badges stay a legible, roughly
+     CONSTANT on-screen size at any viewport width despite that shrink
+     (none of the classes below carry their own font-size any more; app.js
+     sets it per element from vpx(), which a stylesheet rule would just
+     override back to a fixed value and undo the whole point). */
 }
 #venue-svg { width: 100%; height: auto; display: block; }
 
@@ -203,14 +206,12 @@ button { font-family: inherit; }
 .hall-rect:active { fill-opacity: 0.4; }
 .hall-label {
   font-weight: 800;
-  font-size: 34px;
   fill: rgba(255, 255, 255, 0.88);
   pointer-events: none;
   text-anchor: middle;
   dominant-baseline: middle;
 }
 .hall-sub {
-  font-size: 11px;
   fill: rgba(255, 255, 255, 0.5);
   pointer-events: none;
   text-anchor: middle;
@@ -218,7 +219,6 @@ button { font-family: inherit; }
   text-transform: uppercase;
 }
 .entrance-label {
-  font-size: 12px;
   fill: var(--text-dim);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -232,7 +232,6 @@ button { font-family: inherit; }
 }
 .hall-badge-bg.ranked { stroke-width: 3; }
 .hall-badge-count {
-  font-size: 20px;
   font-weight: 800;
   fill: var(--text);
   text-anchor: middle;
