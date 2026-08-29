@@ -374,14 +374,26 @@ async function renderRealHallPlan(hallId, fileId) {
     if (seg) svg.appendChild(svgEl("line", { ...seg, class: "hallplan-door" }));
   }
 
-  // Real gap found live: some stands in the official data are exact
-  // duplicates at the same coordinates -- an alternate "g" id for the
-  // same physical space (e.g. "B-030 C-031" and "B-030g C-031g" sharing
-  // one polygon). Both still get drawn and stay tappable (either one
-  // opens the same spot's detail sheet), but only the FIRST one seen at a
-  // given position gets a text label, so the map doesn't render two
-  // overlapping labels on the exact same square.
-  const labeledPositions = new Set();
+  // Real gap found live, TWICE: (1) some stands share the exact same four
+  // corners as a "g"-suffix twin, just listed in a different order/
+  // winding, so a naive in-order dedup key missed the match -- fixed
+  // below with an order-independent bounding-box key. (2) a "g"-suffix
+  // stand is NOT always an exact duplicate -- confirmed live against the
+  // real data (e.g. hall 10.1's "D-040g E-041g") that most of these are
+  // instead a larger unnamed GROUP/ZONE box that overlaps several real
+  // individual booths inside it (152 of 158 "g" stands across every hall
+  // have zero names -- a real, named booth essentially never carries a
+  // "g" suffix). Labeling both produced overlapping text even after the
+  // exact-duplicate fix. isGroupZoneStand catches this whole class by what
+  // the data actually says (no exhibitor, "g"-suffixed id) rather than by
+  // geometry, which is simpler and correctly covers the exact-duplicate
+  // case too as a side effect.
+  function isGroupZoneStand(s) {
+    const hasNames = s.names && s.names.length > 0;
+    const allTokensGrouped = s.nr.split(/\s+/).every((tok) => tok.endsWith("g"));
+    return !hasNames && allTokensGrouped;
+  }
+
   for (const stand of plan.stands || []) {
     const shifted = stand.poly.map(([x, y]) => [x + margin.w, y + margin.n]);
     const named = stand.names && stand.names.length > 0;
@@ -395,18 +407,7 @@ async function renderRealHallPlan(hallId, fileId) {
     });
     svg.appendChild(poly);
 
-    // Real bug found live: the duplicate "g"-suffix stand lists the SAME
-    // four corners as its twin but starting from a different point in the
-    // list (and possibly wound the other direction), so a dedup key built
-    // by joining points IN ORDER treated them as different shapes and
-    // labeled both anyway. The bounding box is order-independent and, for
-    // these axis-aligned rectangles, fully identifies the shape.
-    const b = boundsOf(shifted);
-    const posKey = `${b.minX.toFixed(1)},${b.minY.toFixed(1)},${b.maxX.toFixed(1)},${b.maxY.toFixed(1)}`;
-    if (!labeledPositions.has(posKey)) {
-      labeledPositions.add(posKey);
-      appendStandLabels(svg, stand, shifted);
-    }
+    if (!isGroupZoneStand(stand)) appendStandLabels(svg, stand, shifted);
   }
 }
 
