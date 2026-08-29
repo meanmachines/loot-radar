@@ -337,18 +337,27 @@ button { font-family: inherit; }
    booth's fill (not blended into it), so it reads consistently whether
    the booth underneath is unnamed (plain dark) or named (blue-tinted). */
 .hallplan-stand-badge {
-  fill: rgba(8, 9, 12, 0.82);
-  stroke: rgba(255, 255, 255, 0.12);
-  stroke-width: 0.25;
+  fill: rgba(6, 7, 9, 0.94);
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 0.28;
   pointer-events: none;
 }
+/* Same font stack as the rest of the app (--font) -- the earlier monospace
+   choice read as noticeably softer/lower-contrast than the rest of this
+   otherwise-crisp UI (real feedback: "washed off low pixel text"), plus a
+   thin dark outline (paint-order draws it behind the fill) so every glyph
+   stays legible against any booth's own fill color, the same technique a
+   real map app's point labels use. */
 .hallplan-stand-label {
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
-  font-family: ui-monospace, monospace;
-  fill: rgba(255,255,255,0.92);
-  font-weight: 600;
+  font-family: var(--font);
+  font-weight: 800;
+  fill: #ffffff;
+  stroke: rgba(0, 0, 0, 0.5);
+  stroke-width: 0.32;
+  paint-order: stroke fill;
 }
 
 #hall-canvas-inner {

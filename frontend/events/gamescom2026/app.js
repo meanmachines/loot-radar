@@ -575,17 +575,28 @@ function boundsOf(points) {
 // literally sized by geography.
 const STAND_BADGE_W = 9;
 const STAND_BADGE_H = 3.6;
-const STAND_BADGE_FONT = 2.15;
+const STAND_BADGE_FONT = 2.3;
+// Real text usable inside the badge, minus side padding so a full-width
+// string never touches the pill's own rounded edge.
+const STAND_BADGE_TEXT_W = STAND_BADGE_W - 1.6;
 
-// Truncates to however many characters fit the FIXED badge width at the
-// FIXED font size -- constant for every stand now, not computed per box,
-// since the whole point is a uniform label instead of one sized to its
-// own booth.
-function fitLabelText(text) {
-  const approxCharWidth = STAND_BADGE_FONT * 0.62;
-  const maxChars = Math.max(2, Math.floor((STAND_BADGE_W - 1) / approxCharWidth));
-  if (text.length <= maxChars) return text;
-  return text.slice(0, Math.max(1, maxChars - 1)) + "…";
+// Shrinks the label to however many characters actually fit the badge,
+// measured with the real rendered font via getComputedTextLength() --
+// replaces an earlier char-count *guess* (chars-per-em tuned for a
+// monospace font) that either wasted space or, worse, could silently
+// overflow the badge for a font whose glyphs run wider than the guess
+// assumed. Requires `el` to already be attached to a laid-out (visible)
+// SVG -- getComputedTextLength() returns 0 on a detached/hidden element,
+// which is why this runs AFTER appendStandLabels appends its <g>, not
+// before.
+function fitLabelText(el, text) {
+  el.textContent = text;
+  if (el.getComputedTextLength() <= STAND_BADGE_TEXT_W) return;
+  let shown = text;
+  while (shown.length > 1 && el.getComputedTextLength() > STAND_BADGE_TEXT_W) {
+    shown = shown.slice(0, -1);
+    el.textContent = shown + "…";
+  }
 }
 
 // cx/cy: badge center, already resolved by the caller's collision pass
@@ -611,10 +622,9 @@ function appendStandLabels(svg, cx, cy, nr, revealZoom) {
     class: "hallplan-stand-label",
     "font-size": STAND_BADGE_FONT,
   });
-  boothLabel.textContent = fitLabelText(nr);
   g.appendChild(boothLabel);
-
-  svg.appendChild(g);
+  svg.appendChild(g); // must be in the live DOM before fitLabelText can measure it
+  fitLabelText(boothLabel, nr);
 }
 
 // Called on every zoom change (see applyHallTransform) plus once right
