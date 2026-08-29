@@ -28,6 +28,21 @@ EVENTS = {
             "confex", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10", "h11",
         },
     },
+    "worldsofplay": {
+        "id": "worldsofplay",
+        "name": "Worlds of Play",
+        "subtitle": "Wassermannhalle, Cologne -- Aug 27-29, 2026",
+        "status": "live",
+        "path": "/worldsofplay/",
+        # A single-venue exhibition, not a multi-hall trade show -- this
+        # event's own frontend (frontend/events/worldsofplay/) has no hall
+        # map or floor plan at all, just a loot feed. "main" is the one
+        # fixed hall_id/booth_no pair its app.js sends on every report
+        # (see that directory's app.js -- it never shows these fields to
+        # the user), kept only because loot_entries/giveaways still require
+        # non-null hall_id/booth_no columns shared with every other event.
+        "hall_ids": {"main"},
+    },
 }
 
 EVENT_HALL_IDS = {eid: e["hall_ids"] for eid, e in EVENTS.items()}

@@ -20,7 +20,7 @@ COPY frontend/ frontend/
 # never seen before, so the old cached copies just go unreferenced rather
 # than needing to be invalidated.
 RUN BUILD_ID=$(date +%s) && \
-    for f in frontend/portal/index.html frontend/events/gamescom2026/index.html; do \
+    for f in frontend/portal/index.html frontend/events/gamescom2026/index.html frontend/events/worldsofplay/index.html; do \
       sed -i "s/\.css\"/.css?v=${BUILD_ID}\"/g; s/\.js\"/.js?v=${BUILD_ID}\"/g" "$f"; \
     done
 COPY nginx.conf /etc/nginx/sites-available/default
