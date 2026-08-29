@@ -1,7 +1,7 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// loot-radar frontend -- vanilla JS, no build step (same philosophy as
+// Lootemall frontend -- vanilla JS, no build step (same philosophy as
 // zBots' own frontend: fast to serve, nothing to break in a build
 // pipeline on a tight deadline). API_BASE is relative -- nginx proxies
 // /api/* to the backend (shared across every event, unlike the static
@@ -1929,7 +1929,7 @@ async function refreshAll() {
     if (openHallId) renderHallPins();
     if (leaderboardTab === "giveaways") renderLeaderboardList();
   } catch (e) {
-    toast("Could not reach loot-radar -- retrying", true);
+    toast("Could not reach Lootemall -- retrying", true);
   }
 }
 

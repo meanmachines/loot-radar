@@ -191,7 +191,7 @@
     wrap.innerHTML = `
       <canvas id="auth-gate-canvas"></canvas>
       <div class="auth-gate-card">
-        <div class="auth-gate-brand"><span class="dot"></span>LOOT RADAR</div>
+        <div class="auth-gate-brand"><span class="dot"></span>LOOTEMALL</div>
         <h1 class="auth-gate-title">Track the loot. Live.</h1>
         <p class="auth-gate-sub">Sign up to see the map, report finds, and catch scheduled giveaways as they happen.</p>
 

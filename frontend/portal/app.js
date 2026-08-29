@@ -1,6 +1,6 @@
 "use strict";
 
-// Loot Radar portal -- the global entry point. Fetches the live event
+// Lootemall portal -- the global entry point. Fetches the live event
 // catalog from the shared backend (see backend/events_registry.py) and
 // renders one card per event; each event owns its own self-contained
 // frontend directory (frontend/events/<id>/) that this page just links to.

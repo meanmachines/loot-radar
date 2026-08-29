@@ -1,7 +1,7 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Loot Radar -- Worlds of Play. Same backend/platform as gamescom2026 (see
+// Lootemall -- Worlds of Play. Same backend/platform as gamescom2026 (see
 // that event's own app.js for the full architecture notes: shared Postgres,
 // event_id-scoped rows, one SSE broadcaster, same OAuth flow). This event's
 // own frontend is deliberately much smaller: a single-venue exhibition has
@@ -558,7 +558,7 @@ async function refreshAll() {
     lootById = new Map(list.map((l) => [l.id, l]));
     renderLootFeed();
   } catch (e) {
-    toast("Could not reach loot-radar -- retrying", true);
+    toast("Could not reach Lootemall -- retrying", true);
   }
 }
 
