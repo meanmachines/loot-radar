@@ -24,16 +24,17 @@
     </div>
   </header>
 
-  <div id="searchbar">
+  <div id="searchbar" class="searchbar">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <input id="search-input" type="text" placeholder="Search company, item, or booth..." autocomplete="off" />
-    <span id="search-clear">&times;</span>
-    <!-- Booth/company matches from the real floor plan -- see runSearch's
-         own comment on how this differs from the loot-based hall dimming
-         below it. Absolutely positioned inside #searchbar (not a sibling)
-         so `top: 100%` anchors to the search bar's own box without a
-         separate positioned wrapper. -->
-    <div id="search-results"></div>
+    <input id="search-input" class="search-input" type="text" placeholder="Search company, item, or booth..." autocomplete="off" />
+    <span id="search-clear" class="search-clear">&times;</span>
+    <!-- Booth/company matches from the real floor plan -- see
+         searchBoothsAndCompanies's own comment on how this differs from
+         the loot-based hall dimming this bar also does on the venue map
+         underneath. Absolutely positioned inside .searchbar (not a
+         sibling) so `top: 100%` anchors to the search bar's own box
+         without a separate positioned wrapper. -->
+    <div id="search-results" class="search-results-dropdown"></div>
   </div>
 
   <div id="views">
@@ -83,6 +84,12 @@
         <h2 id="hall-sheet-title">Hall</h2>
         <div class="sub" id="hall-sheet-sub"></div>
       </div>
+    </div>
+    <div id="hall-searchbar" class="searchbar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="hall-search-input" class="search-input" type="text" placeholder="Search company or booth in this hall's plan..." autocomplete="off" />
+      <span id="hall-search-clear" class="search-clear">&times;</span>
+      <div id="hall-search-results" class="search-results-dropdown"></div>
     </div>
     <div id="hall-level-switcher"></div>
     <div id="hall-canvas-wrap">

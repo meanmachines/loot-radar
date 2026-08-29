@@ -794,6 +794,24 @@ function openBoothDetail(stand, shiftedPts, extent) {
   document.getElementById("booth-sheet").classList.add("open");
 }
 
+// No real exhibitor logo artwork exists anywhere in this app's data (the
+// vendored floor plan only ever has a name string) -- a colored initials
+// avatar is the standard fallback any app uses when it doesn't have a
+// real logo image, and it's deterministic (same name -> same letters,
+// same color every time) so a booth reads as visually consistent across
+// visits instead of looking randomly different each render.
+function companyInitials(name) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+function companyAvatarColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return `hsl(${hash % 360}, 58%, 42%)`;
+}
+
 // Re-renders the booth sheet's own body from the ALREADY-open
 // boothDetailContext -- used after scheduling a giveaway at this booth, so
 // the new entry shows up immediately without needing shiftedPts/extent
@@ -802,9 +820,22 @@ function openBoothDetail(stand, shiftedPts, extent) {
 function renderBoothSheetBody() {
   if (!boothDetailContext) return;
   const { stand, hallId } = boothDetailContext;
+  const hall = hallById(hallId);
+  const displayName = (stand.names && stand.names[0]) || `Booth ${stand.nr}`;
   const matches = lootForHall(hallId).filter((l) => boothNumbersMatch(l.booth_no, stand.nr));
   const body = document.getElementById("booth-sheet-body");
-  let html = `<div class="booth-official-badge">${icon("check")} From the official Gamescom floor plan</div>`;
+  // A big, unmistakable "whose booth is this" identity card up top --
+  // direct feedback: the company's name (no real logo art exists to show,
+  // see companyAvatarColor's own note) needed to be a lot more obvious
+  // than the small sheet-header title alone.
+  let html = `<div class="booth-identity">
+    <div class="booth-avatar" style="background:${companyAvatarColor(displayName)}">${escapeHtml(companyInitials(displayName))}</div>
+    <div class="booth-identity-info">
+      <div class="booth-identity-name">${escapeHtml(displayName)}</div>
+      <div class="booth-identity-sub">Booth ${escapeHtml(stand.nr)}${hall ? ` &middot; Hall ${hall.number}` : ""}</div>
+    </div>
+  </div>`;
+  html += `<div class="booth-official-badge">${icon("check")} From the official Gamescom floor plan</div>`;
   html += renderBoothGiveawayList(hallId, stand.nr);
   if (!matches.length) {
     html += `<div class="empty-state">${icon("chest")}<span>No loot reported at this booth yet -- be the first.</span></div>`;
@@ -1765,43 +1796,13 @@ document.querySelectorAll(".nav-btn[data-view]").forEach((b) => b.addEventListen
 // Search
 // ---------------------------------------------------------------------------
 
-let searchTimer = null;
-document.getElementById("search-input").addEventListener("input", (e) => {
-  const q = e.target.value.trim();
-  document.getElementById("search-clear").classList.toggle("show", q.length > 0);
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => runSearch(q), 150);
-});
-document.getElementById("search-input").addEventListener("focus", () => {
-  if (document.getElementById("search-input").value.trim()) showSearchResults();
-});
-// Dismiss the results dropdown on an outside tap, same pattern any
-// autocomplete needs -- but not on a tap inside it, which would close it
-// before its own click handler (see renderSearchResults) ever fires.
-document.addEventListener("click", (e) => {
-  const bar = document.getElementById("searchbar");
-  if (!bar.contains(e.target)) hideSearchResults();
-});
-document.getElementById("search-clear").addEventListener("click", () => {
-  document.getElementById("search-input").value = "";
-  document.getElementById("search-clear").classList.remove("show");
-  hideSearchResults();
-  renderVenueMap();
-});
-
-function hideSearchResults() {
-  document.getElementById("search-results").classList.remove("show");
-}
-function showSearchResults() {
-  document.getElementById("search-results").classList.add("show");
-}
-
 // Finds real booths/companies by number or name -- distinct from the loot-
-// based hall dimming below, which only ever knows about spots someone has
-// already reported. This searches the SAME company/booth index the
-// giveaway form's autocomplete uses (see buildCompanyIndex): the official
-// floor plan plus anything already reported through the app, so it can
-// find a booth even if nobody's posted loot there yet.
+// based hall dimming the venue map's own search bar also does, which only
+// ever knows about spots someone has already reported. This searches the
+// SAME company/booth index the giveaway form's autocomplete uses (see
+// buildCompanyIndex): the official floor plan plus anything already
+// reported through the app, so it can find a booth even if nobody's
+// posted loot there yet.
 function searchBoothsAndCompanies(query) {
   if (!companyIndex || !query) return [];
   const needle = query.trim().toLowerCase();
@@ -1819,39 +1820,15 @@ function searchBoothsAndCompanies(query) {
   return results;
 }
 
-function renderSearchResults(results) {
-  const el = document.getElementById("search-results");
-  if (!results.length) { hideSearchResults(); return; }
-  el.innerHTML = results.map((r, i) => {
-    const hall = hallById(r.hallId);
-    return `<div class="search-result-row" data-i="${i}">
-      <div class="search-result-icon">${icon("pin")}</div>
-      <div class="search-result-info">
-        <div class="search-result-title">${escapeHtml(r.name)}</div>
-        <div class="search-result-sub">Hall ${hall ? hall.number : r.hallId} &middot; Booth ${escapeHtml(r.boothNo)}</div>
-      </div>
-    </div>`;
-  }).join("");
-  el.querySelectorAll(".search-result-row").forEach((row) => {
-    row.addEventListener("click", (e) => {
-      e.stopPropagation();
-      jumpToSearchResult(results[Number(row.dataset.i)]);
-    });
-  });
-  showSearchResults();
-}
-
 // Opens the matched booth's hall (and, for a hall with more than one
 // level/file, the specific level it's actually on -- see fileId's own
 // comment in indexCompany) and, when the match came straight off the real
 // floor plan, jumps directly into that booth's own detail sheet instead of
 // just leaving the visitor to find it on the canvas themselves. A match
 // from EXTRA_COMPANIES or live crowd data has no fileId (no real stand
-// polygon to look up), so those fall back to just opening the hall.
+// polygon to look up), so those fall back to just opening the hall. Works
+// the same regardless of which search bar (venue map or in-hall) found it.
 async function jumpToSearchResult(entry) {
-  document.getElementById("search-input").value = entry.name;
-  document.getElementById("search-clear").classList.add("show");
-  hideSearchResults();
   await openHall(entry.hallId);
   if (!entry.fileId) return;
   if (!currentHallLevel || currentHallLevel.file !== entry.fileId) {
@@ -1864,26 +1841,94 @@ async function jumpToSearchResult(entry) {
   openBoothDetail(stand, shifted, currentHallLevel.extent);
 }
 
-function runSearch(q) {
-  if (!q) { hideSearchResults(); renderVenueMap(); return; }
-  renderSearchResults(searchBoothsAndCompanies(q));
+// One search bar's worth of wiring (input/clear/results-dropdown), used
+// twice: the venue map's own bar (which also dims non-matching halls on
+// the map underneath, via onQuery) and an identical bar inside the hall-
+// detail sheet (no map to dim behind a full-screen sheet, so it just omits
+// onQuery) -- direct feedback: search only existed at the venue level,
+// wanted it reachable without backing out of the hall you're already in.
+function wireSearchBar({ inputId, clearId, resultsId, containerId, onQuery }) {
+  const input = document.getElementById(inputId);
+  const clearBtn = document.getElementById(clearId);
+  const resultsEl = document.getElementById(resultsId);
+  const container = document.getElementById(containerId);
+  let timer = null;
 
-  const needle = q.toLowerCase();
-  const matches = [...lootById.values()].filter(
-    (l) => l.status === "active" && (l.company_name.toLowerCase().includes(needle) || l.items.toLowerCase().includes(needle))
-  );
-  const matchHalls = new Set(matches.map((m) => m.hall_id));
-  renderVenueMap();
-  const svg = document.getElementById("venue-svg");
-  [...svg.querySelectorAll("g")].forEach((g, i) => {
-    const hall = HALLS[i];
-    if (!hall) return;
-    g.style.opacity = matchHalls.size === 0 || matchHalls.has(hall.id) ? "1" : "0.25";
-  });
-  if (matches.length === 1) {
-    toast(`Found in Hall ${hallById(matches[0].hall_id)?.number}`);
+  function hide() { resultsEl.classList.remove("show"); }
+  function show() { resultsEl.classList.add("show"); }
+
+  function render(results) {
+    if (!results.length) { hide(); return; }
+    resultsEl.innerHTML = results.map((r, i) => {
+      const hall = hallById(r.hallId);
+      return `<div class="search-result-row" data-i="${i}">
+        <div class="search-result-icon">${icon("pin")}</div>
+        <div class="search-result-info">
+          <div class="search-result-title">${escapeHtml(r.name)}</div>
+          <div class="search-result-sub">Hall ${hall ? hall.number : r.hallId} &middot; Booth ${escapeHtml(r.boothNo)}</div>
+        </div>
+      </div>`;
+    }).join("");
+    resultsEl.querySelectorAll(".search-result-row").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const entry = results[Number(row.dataset.i)];
+        input.value = entry.name;
+        clearBtn.classList.add("show");
+        hide();
+        jumpToSearchResult(entry);
+      });
+    });
+    show();
   }
+
+  input.addEventListener("input", (e) => {
+    const q = e.target.value.trim();
+    clearBtn.classList.toggle("show", q.length > 0);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      render(searchBoothsAndCompanies(q));
+      if (onQuery) onQuery(q);
+    }, 150);
+  });
+  input.addEventListener("focus", () => { if (input.value.trim()) show(); });
+  // Dismiss the results dropdown on an outside tap, same pattern any
+  // autocomplete needs -- but not on a tap inside it, which would close it
+  // before its own click handler above ever fires.
+  document.addEventListener("click", (e) => { if (!container.contains(e.target)) hide(); });
+  clearBtn.addEventListener("click", () => {
+    input.value = "";
+    clearBtn.classList.remove("show");
+    hide();
+    if (onQuery) onQuery("");
+  });
 }
+
+wireSearchBar({
+  inputId: "search-input", clearId: "search-clear", resultsId: "search-results", containerId: "searchbar",
+  onQuery: (q) => {
+    renderVenueMap();
+    const svg = document.getElementById("venue-svg");
+    if (!q) return;
+    const needle = q.toLowerCase();
+    const matches = [...lootById.values()].filter(
+      (l) => l.status === "active" && (l.company_name.toLowerCase().includes(needle) || l.items.toLowerCase().includes(needle))
+    );
+    const matchHalls = new Set(matches.map((m) => m.hall_id));
+    [...svg.querySelectorAll("g")].forEach((g, i) => {
+      const hall = HALLS[i];
+      if (!hall) return;
+      g.style.opacity = matchHalls.size === 0 || matchHalls.has(hall.id) ? "1" : "0.25";
+    });
+    if (matches.length === 1) {
+      toast(`Found in Hall ${hallById(matches[0].hall_id)?.number}`);
+    }
+  },
+});
+
+wireSearchBar({
+  inputId: "hall-search-input", clearId: "hall-search-clear", resultsId: "hall-search-results", containerId: "hall-searchbar",
+});
 
 // ---------------------------------------------------------------------------
 // Live updates (SSE)
