@@ -422,59 +422,59 @@ function boundsOf(points) {
   return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
 }
 
-// Truncates to roughly however many characters fit at this font size
-// instead of relying on SVG textLength compression, which either leaves
-// long names illegibly squished or (if only applied when text overflows)
-// needs the same width estimate anyway -- doing the estimate once, up
-// front, and truncating the STRING is simpler and reads better. The 0.68
-// multiplier is deliberately generous (i.e. assumes WIDER glyphs than a
-// typical monospace character actually is) -- better to under-fill a box
-// than overflow into the neighbor, which is exactly what happened with a
-// tighter estimate (see this function's own real-bug note below).
-function fitLabelText(text, availableWidthUnits, fontSizeUnits) {
-  const approxCharWidth = fontSizeUnits * 0.68;
-  const maxChars = Math.max(2, Math.floor(availableWidthUnits / approxCharWidth));
+// Real design bug, not just the earlier px-unit sizing bug: font size was
+// scaled to EACH booth's own box dimensions, so labels came out a
+// different size on every single booth (a 2m booth next to a 24m one
+// reads two wildly different type sizes) -- direct feedback: "text can be
+// badge type or something that's same size for all uniformity instead of
+// size of booth." A fixed-size badge -- constant dimensions and font
+// everywhere, a dark pill that sits on top of the booth's own fill color
+// rather than text scaled to disappear into a tiny box or balloon to fill
+// a big one -- reads as one consistent wayfinding layer across the whole
+// map, the way a real map's point labels do, instead of text that's
+// literally sized by geography.
+const STAND_BADGE_W = 9;
+const STAND_BADGE_H = 3.6;
+const STAND_BADGE_FONT = 2.15;
+
+// Truncates to however many characters fit the FIXED badge width at the
+// FIXED font size -- constant for every stand now, not computed per box,
+// since the whole point is a uniform label instead of one sized to its
+// own booth.
+function fitLabelText(text) {
+  const approxCharWidth = STAND_BADGE_FONT * 0.62;
+  const maxChars = Math.max(2, Math.floor((STAND_BADGE_W - 1) / approxCharWidth));
   if (text.length <= maxChars) return text;
   return text.slice(0, Math.max(1, maxChars - 1)) + "…";
 }
 
-// Real bug found live: font-size was being set via `style="font-size:Npx"`
-// -- an absolute CSS unit, which does NOT scale with the SVG's own
-// viewBox transform. The booth polygons (plain unitless coordinate
-// attributes) DO scale with viewBox, so on any viewport wider than what
-// this was eyeballed against, boxes grew with the container while text
-// stayed pinned to real screen pixels -- completely decoupling label size
-// from the box it was supposed to fit, producing exactly the overlapping
-// oversized mess seen live. A bare numeric font-size (no unit) is SVG
-// user-space, same coordinate system as everything else here, and scales
-// in lockstep with box size regardless of viewport width.
-//
-// Also dropped the company-name second line entirely per direct feedback
-// ("text doesn't look good... just name and stall no") -- the map now
-// shows booth numbers only; company name still surfaces on tap (see
-// onBoothTap's own detail sheet) and gets pre-filled into the add-loot
-// form, which is where it actually needs to be read carefully rather than
-// skimmed at map scale.
 function appendStandLabels(svg, stand, shifted) {
   const b = boundsOf(shifted);
   const boxW = b.maxX - b.minX;
   const boxH = b.maxY - b.minY;
-  // Too small to hold legible text at all -- skip rather than draw
-  // overlapping unreadable glyphs on the tiniest slivers some real stands
-  // are (confirmed live: plenty of booths are under 5m in one dimension).
-  if (Math.min(boxW, boxH) < 5) return;
+  // Skip only booths too small to sensibly carry even a compact fixed
+  // badge -- a badge visibly overlapping its own tiny booth's edges reads
+  // worse than no badge at all, but it no longer needs to actually FIT
+  // the box the way scaled-to-fit text did.
+  if (Math.min(boxW, boxH) < 3.5) return;
 
   const cx = (b.minX + b.maxX) / 2;
   const cy = (b.minY + b.maxY) / 2;
-  const availableW = boxW * 0.88;
-  const boothFont = Math.max(1.8, Math.min(3.2, Math.min(boxW, boxH) * 0.22));
+
+  const badge = svgEl("rect", {
+    x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
+    width: STAND_BADGE_W, height: STAND_BADGE_H,
+    rx: STAND_BADGE_H / 2,
+    class: "hallplan-stand-badge",
+  });
+  svg.appendChild(badge);
 
   const boothLabel = svgEl("text", {
     x: cx, y: cy,
     class: "hallplan-stand-label",
-    "font-size": boothFont,
+    "font-size": STAND_BADGE_FONT,
   });
-  boothLabel.textContent = fitLabelText(stand.nr, availableW, boothFont);
+  boothLabel.textContent = fitLabelText(stand.nr);
   svg.appendChild(boothLabel);
 }
 

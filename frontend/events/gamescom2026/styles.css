@@ -314,12 +314,24 @@ button { font-family: inherit; }
 }
 .hallplan-stand.named { fill: var(--primary-soft); stroke: rgba(79, 124, 255, 0.35); }
 .hallplan-stand:active { fill: rgba(79, 124, 255, 0.4); }
+/* Fixed-size badge, same dimensions on every booth regardless of that
+   booth's own size (see appendStandLabels' own comment on why -- this
+   replaces text that used to scale to each box, which read as visually
+   chaotic across a hall with both 2m and 24m stands). Sits ON the
+   booth's fill (not blended into it), so it reads consistently whether
+   the booth underneath is unnamed (plain dark) or named (blue-tinted). */
+.hallplan-stand-badge {
+  fill: rgba(8, 9, 12, 0.82);
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 0.25;
+  pointer-events: none;
+}
 .hallplan-stand-label {
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
   font-family: ui-monospace, monospace;
-  fill: rgba(255,255,255,0.72);
+  fill: rgba(255,255,255,0.92);
   font-weight: 600;
 }
 
