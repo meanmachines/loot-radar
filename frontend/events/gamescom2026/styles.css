@@ -180,7 +180,17 @@ button { font-family: inherit; }
 }
 #venue-svg-wrap {
   padding: 0.25rem 0.75rem 1.25rem;
-  min-width: 640px;
+  width: 100%;
+  /* No min-width -- a real phone (the intended device at the actual show,
+     confirmed live: this session had been testing against a huge desktop
+     window this whole time without realizing it, never actually verifying
+     a true phone viewport) is 375-430px wide, well under the old 640px
+     floor. That forced horizontal scrolling just to see the WHOLE venue
+     map on load, hiding half of it by default -- the opposite of "clean
+     at a glance." Letting the SVG's own width:100% shrink to fit instead
+     means the full venue is visible immediately; hall number labels stay
+     a fixed CSS px size (see .hall-label etc.) so they don't shrink into
+     illegibility along with the blocks. */
 }
 #venue-svg { width: 100%; height: auto; display: block; }
 
