@@ -205,6 +205,12 @@
   </div>
 
   <!-- Add loot form sheet -->
+  <!-- Report loot sheet -- items/photo come first and are tap-first (chips,
+       a big camera button), not type-first: direct feedback that filling
+       this in "isn't easy" and needed to be a "super quick UI." Hall/
+       booth/company stay further down since a tap-to-open booth already
+       fills them in most of the time (see openAddSheet's own prefill) --
+       they need attention far less often than "what did you find." -->
   <div id="add-sheet">
     <div class="sheet-header">
       <button class="icon-btn" id="add-sheet-back">
@@ -213,6 +219,19 @@
       <div><h2>Report loot</h2></div>
     </div>
     <div class="sheet-body">
+      <div class="field">
+        <label>What did you find? Tap any that apply</label>
+        <div class="item-chip-row" id="item-chip-row"></div>
+        <textarea id="form-items" placeholder="e.g. pins, poster, keycap, tote bag" maxlength="500"></textarea>
+      </div>
+      <div class="field">
+        <label>Photo (optional)</label>
+        <label class="photo-picker" id="photo-picker" for="form-photo">
+          <span id="photo-picker-icon"></span>
+          <span id="photo-picker-text">Take or add a photo</span>
+          <input type="file" accept="image/*" capture="environment" id="form-photo" />
+        </label>
+      </div>
       <div class="field">
         <label>Hall</label>
         <input type="text" id="form-hall-display" readonly />
@@ -226,19 +245,8 @@
         <input type="text" id="form-company" placeholder="e.g. Nova Interactive" maxlength="120" />
       </div>
       <div class="field">
-        <label>Loot items</label>
-        <textarea id="form-items" placeholder="e.g. pins, poster, keycap, tote bag" maxlength="500"></textarea>
-      </div>
-      <div class="field">
         <label>Your name (optional)</label>
         <input type="text" id="form-name" placeholder="Shown on the leaderboard" maxlength="60" />
-      </div>
-      <div class="field">
-        <label>Photo (optional)</label>
-        <div class="photo-picker" id="photo-picker">
-          <span id="photo-picker-text">Tap to attach a photo</span>
-          <input type="file" accept="image/*" capture="environment" id="form-photo" />
-        </div>
       </div>
       <div class="field-hint" id="form-pin-hint">Pin placed at the spot you tapped on the hall map.</div>
     </div>

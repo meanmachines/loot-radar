@@ -1204,13 +1204,65 @@ async function rateLoot(id, stars) {
 
 let selectedPhotoBlob = null;
 
+// Quick-tap chips for the most common Gamescom swag categories -- direct
+// feedback: typing out items every single time "isn't easy," wanted
+// "proper buttons... super quick UI." Tapping a chip just adds/removes its
+// own word from the SAME #form-items textarea a manual typist would fill
+// in (see toggleItemChip/syncItemChipsFromText) -- one source of truth,
+// two ways to fill it, never out of sync with each other.
+const QUICK_ITEM_CHIPS = [
+  "Tee", "Tote bag", "Keychain", "Sticker", "Pin", "Poster",
+  "Trading card", "Lanyard", "Wristband", "Figure", "Snacks", "Demo code",
+];
+
+function renderItemChips() {
+  const row = document.getElementById("item-chip-row");
+  row.innerHTML = QUICK_ITEM_CHIPS.map((label) =>
+    `<button type="button" class="item-chip" data-item="${escapeHtml(label)}">${escapeHtml(label)}</button>`
+  ).join("");
+  row.querySelectorAll(".item-chip").forEach((btn) => btn.addEventListener("click", () => toggleItemChip(btn)));
+}
+renderItemChips();
+
+function itemListFromText() {
+  return document.getElementById("form-items").value.split(",").map((s) => s.trim()).filter(Boolean);
+}
+function setItemListText(parts) {
+  document.getElementById("form-items").value = parts.join(", ");
+}
+
+function toggleItemChip(btn) {
+  const item = btn.dataset.item;
+  const parts = itemListFromText();
+  const idx = parts.findIndex((p) => p.toLowerCase() === item.toLowerCase());
+  if (idx >= 0) parts.splice(idx, 1);
+  else parts.push(item);
+  setItemListText(parts);
+  btn.classList.toggle("selected", idx < 0);
+}
+
+// Keeps chip highlighting honest if the visitor types/edits the textarea
+// directly instead of (or in addition to) tapping chips -- e.g. typing
+// "sticker" by hand should visually select the Sticker chip too.
+function syncItemChipsFromText() {
+  const parts = itemListFromText().map((s) => s.toLowerCase());
+  document.querySelectorAll(".item-chip").forEach((btn) => {
+    btn.classList.toggle("selected", parts.includes(btn.dataset.item.toLowerCase()));
+  });
+}
+document.getElementById("form-items").addEventListener("input", syncItemChipsFromText);
+
 function openAddSheet(prefill) {
   const hall = hallById(openHallId);
   document.getElementById("form-hall-display").value = hall ? `Hall ${hall.number} -- ${hall.category}` : "";
   document.getElementById("form-booth").value = (prefill && prefill.booth) || "";
   document.getElementById("form-company").value = (prefill && prefill.company) || "";
   document.getElementById("form-items").value = "";
+  syncItemChipsFromText();
   document.getElementById("form-name").value = localStorage.getItem("lr_display_name") || "";
+  const photoIcon = document.getElementById("photo-picker-icon");
+  photoIcon.innerHTML = icon("camera");
+  photoIcon.style.display = "";
   document.getElementById("photo-picker-text").style.display = "";
   const preview = document.getElementById("photo-picker").querySelector("img");
   if (preview) preview.remove();
@@ -1253,6 +1305,7 @@ document.getElementById("form-photo").addEventListener("change", async (e) => {
     const img = document.createElement("img");
     img.src = URL.createObjectURL(selectedPhotoBlob);
     picker.insertBefore(img, picker.firstChild);
+    document.getElementById("photo-picker-icon").style.display = "none";
     document.getElementById("photo-picker-text").style.display = "none";
   } catch (err) {
     toast("Could not read that photo", true);
