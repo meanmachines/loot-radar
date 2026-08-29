@@ -573,12 +573,22 @@ function boundsOf(points) {
 // a big one -- reads as one consistent wayfinding layer across the whole
 // map, the way a real map's point labels do, instead of text that's
 // literally sized by geography.
-const STAND_BADGE_W = 10.5;
+const STAND_BADGE_W = 11.5;
 const STAND_BADGE_H = 3.6;
 const STAND_BADGE_FONT = 2.3;
-// Real text usable inside the badge, minus side padding so a full-width
-// string never touches the pill's own rounded edge.
-const STAND_BADGE_TEXT_W = STAND_BADGE_W - 1.6;
+// A rounded-rect "tag" with a small gold marker dot before the number --
+// not a plain full-stadium pill (rx = height/2), which read as a bare
+// floating text bubble with nothing distinguishing it as a location
+// marker (real feedback: the plain pill "look better" needed a bit more
+// definition). A softer corner radius plus the dot gives it the shape of
+// an actual map-pin tag instead of a chat bubble.
+const STAND_BADGE_RADIUS = 1.15;
+const STAND_BADGE_DOT_R = 0.5;
+const STAND_BADGE_PAD_LEFT = 1.35; // dot's inset from the badge's own left edge
+const STAND_BADGE_TEXT_START = STAND_BADGE_PAD_LEFT + STAND_BADGE_DOT_R + 0.65; // text begins just right of the dot
+// Real text usable inside the badge, minus the dot/left padding and a
+// matching right margin so a full-width string never touches either edge.
+const STAND_BADGE_TEXT_W = STAND_BADGE_W - STAND_BADGE_TEXT_START - 0.9;
 
 // Shrinks the label to however many characters actually fit the badge,
 // measured with the real rendered font via getComputedTextLength() --
@@ -608,17 +618,25 @@ function fitLabelText(el, text) {
 // <g> so updateLabelVisibility only has one element per booth to toggle.
 function appendStandLabels(svg, cx, cy, nr, revealZoom) {
   const g = svgEl("g", { class: "hallplan-label-group", "data-reveal": revealZoom });
+  const left = cx - STAND_BADGE_W / 2;
 
   const badge = svgEl("rect", {
-    x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
+    x: left, y: cy - STAND_BADGE_H / 2,
     width: STAND_BADGE_W, height: STAND_BADGE_H,
-    rx: STAND_BADGE_H / 2,
+    rx: STAND_BADGE_RADIUS,
     class: "hallplan-stand-badge",
   });
   g.appendChild(badge);
 
+  const dot = svgEl("circle", {
+    cx: left + STAND_BADGE_PAD_LEFT, cy,
+    r: STAND_BADGE_DOT_R,
+    class: "hallplan-stand-badge-dot",
+  });
+  g.appendChild(dot);
+
   const boothLabel = svgEl("text", {
-    x: cx, y: cy,
+    x: left + STAND_BADGE_TEXT_START, y: cy,
     class: "hallplan-stand-label",
     "font-size": STAND_BADGE_FONT,
   });
