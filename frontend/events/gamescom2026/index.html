@@ -26,8 +26,14 @@
 
   <div id="searchbar">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <input id="search-input" type="text" placeholder="Search company or item..." autocomplete="off" />
+    <input id="search-input" type="text" placeholder="Search company, item, or booth..." autocomplete="off" />
     <span id="search-clear">&times;</span>
+    <!-- Booth/company matches from the real floor plan -- see runSearch's
+         own comment on how this differs from the loot-based hall dimming
+         below it. Absolutely positioned inside #searchbar (not a sibling)
+         so `top: 100%` anchors to the search bar's own box without a
+         separate positioned wrapper. -->
+    <div id="search-results"></div>
   </div>
 
   <div id="views">

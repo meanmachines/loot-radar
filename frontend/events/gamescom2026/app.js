@@ -618,7 +618,10 @@ function fitLabelText(el, text) {
 // "hidden until the user pinch-zooms in that far." Badge+text share one
 // <g> so updateLabelVisibility only has one element per booth to toggle.
 function appendStandLabels(svg, cx, cy, nr, revealZoom) {
-  const g = svgEl("g", { class: "hallplan-label-group", "data-reveal": revealZoom });
+  const g = svgEl("g", {
+    class: "hallplan-label-group", "data-reveal": revealZoom,
+    "data-cx": cx, "data-cy": cy, "data-nr": nr,
+  });
 
   const badge = svgEl("rect", {
     x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
@@ -638,15 +641,46 @@ function appendStandLabels(svg, cx, cy, nr, revealZoom) {
   fitLabelText(boothLabel, nr);
 }
 
+// Zoom scale at which a badge that had to truncate its real id (mainly
+// shared/double stands like "B-070 C-071", too long to ever fit the
+// compact default width) widens to show the whole thing -- direct
+// feedback: truncated codes ("B-0...") aren't actually readable, and
+// zooming in should reveal them rather than just making the same "..."
+// bigger. Below this zoom every badge stays at its compact default size;
+// nothing here affects the majority of booths whose id already fits.
+const HALL_ZOOM_EXPAND_LABELS = 1.7;
+
 // Called on every zoom change (see applyHallTransform) plus once right
 // after a hall's labels are first built -- shows/hides each label group
-// based on whether the current zoom has reached its own reveal threshold.
+// based on whether the current zoom has reached its own reveal threshold,
+// and (only past HALL_ZOOM_EXPAND_LABELS) widens any badge whose real id
+// didn't fit the compact default so the full id becomes readable instead
+// of staying truncated forever regardless of zoom.
 function updateLabelVisibility() {
   const svg = document.getElementById("hall-plan-svg");
   if (!svg) return;
+  const expand = hallZoom.scale >= HALL_ZOOM_EXPAND_LABELS;
   svg.querySelectorAll(".hallplan-label-group").forEach((g) => {
     const reveal = parseFloat(g.dataset.reveal || "1");
     g.style.display = hallZoom.scale >= reveal - 0.001 ? "" : "none";
+
+    const nr = g.dataset.nr;
+    const cx = parseFloat(g.dataset.cx);
+    const rect = g.querySelector(".hallplan-stand-badge");
+    const text = g.querySelector(".hallplan-stand-label");
+    if (expand) {
+      if (text.textContent !== nr) {
+        text.textContent = nr;
+        const fullW = text.getComputedTextLength();
+        const neededW = Math.max(STAND_BADGE_W, fullW + 1.6);
+        rect.setAttribute("x", cx - neededW / 2);
+        rect.setAttribute("width", neededW);
+      }
+    } else if (rect.getAttribute("width") !== String(STAND_BADGE_W)) {
+      rect.setAttribute("x", cx - STAND_BADGE_W / 2);
+      rect.setAttribute("width", STAND_BADGE_W);
+      fitLabelText(text, nr);
+    }
   });
 }
 
@@ -1291,11 +1325,16 @@ let companyIndex = null;
 let giveawayPendingCompany = "";
 let giveawayContext = null; // {hallId, boothNo, pinX, pinY} while the giveaway sheet is open
 
-function indexCompany(name, hallId, boothNo, pinX, pinY) {
+function indexCompany(name, hallId, boothNo, pinX, pinY, fileId) {
   if (!companyIndex || !name) return;
   const key = name.trim().toLowerCase();
   if (!key || !hallId || !boothNo) return;
-  companyIndex.set(key, { hallId, boothNo, name: name.trim(), pinX, pinY });
+  // fileId (which specific level/file within a multi-level hall the real
+  // stand polygon lives in) is only known for entries scanned straight off
+  // the official floor plan -- EXTRA_COMPANIES and live crowd-reported
+  // entries don't have it, so jumpToSearchResult falls back to just
+  // opening the hall for those instead of the full booth-detail popup.
+  companyIndex.set(key, { hallId, boothNo, name: name.trim(), pinX, pinY, fileId });
 }
 
 async function buildCompanyIndex() {
@@ -1320,7 +1359,7 @@ async function buildCompanyIndex() {
       if (!stand.names || !stand.names.length) continue;
       const shifted = stand.poly.map(([x, y]) => [x + margin.w, y + margin.n]);
       const pin = centroidNormalized(shifted, extent);
-      for (const name of stand.names) indexCompany(name, hallId, stand.nr, pin.x, pin.y);
+      for (const name of stand.names) indexCompany(name, hallId, stand.nr, pin.x, pin.y, fileId);
     }
   }));
   for (const [name, loc] of Object.entries(EXTRA_COMPANIES)) {
@@ -1638,24 +1677,107 @@ document.getElementById("search-input").addEventListener("input", (e) => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => runSearch(q), 150);
 });
+document.getElementById("search-input").addEventListener("focus", () => {
+  if (document.getElementById("search-input").value.trim()) showSearchResults();
+});
+// Dismiss the results dropdown on an outside tap, same pattern any
+// autocomplete needs -- but not on a tap inside it, which would close it
+// before its own click handler (see renderSearchResults) ever fires.
+document.addEventListener("click", (e) => {
+  const bar = document.getElementById("searchbar");
+  if (!bar.contains(e.target)) hideSearchResults();
+});
 document.getElementById("search-clear").addEventListener("click", () => {
   document.getElementById("search-input").value = "";
   document.getElementById("search-clear").classList.remove("show");
+  hideSearchResults();
   renderVenueMap();
 });
 
+function hideSearchResults() {
+  document.getElementById("search-results").classList.remove("show");
+}
+function showSearchResults() {
+  document.getElementById("search-results").classList.add("show");
+}
+
+// Finds real booths/companies by number or name -- distinct from the loot-
+// based hall dimming below, which only ever knows about spots someone has
+// already reported. This searches the SAME company/booth index the
+// giveaway form's autocomplete uses (see buildCompanyIndex): the official
+// floor plan plus anything already reported through the app, so it can
+// find a booth even if nobody's posted loot there yet.
+function searchBoothsAndCompanies(query) {
+  if (!companyIndex || !query) return [];
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  const seen = new Set();
+  const results = [];
+  for (const v of companyIndex.values()) {
+    if (!v.name.toLowerCase().includes(needle) && !v.boothNo.toLowerCase().includes(needle)) continue;
+    const key = `${v.hallId}|${v.boothNo}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(v);
+    if (results.length >= 8) break;
+  }
+  return results;
+}
+
+function renderSearchResults(results) {
+  const el = document.getElementById("search-results");
+  if (!results.length) { hideSearchResults(); return; }
+  el.innerHTML = results.map((r, i) => {
+    const hall = hallById(r.hallId);
+    return `<div class="search-result-row" data-i="${i}">
+      <div class="search-result-icon">${icon("pin")}</div>
+      <div class="search-result-info">
+        <div class="search-result-title">${escapeHtml(r.name)}</div>
+        <div class="search-result-sub">Hall ${hall ? hall.number : r.hallId} &middot; Booth ${escapeHtml(r.boothNo)}</div>
+      </div>
+    </div>`;
+  }).join("");
+  el.querySelectorAll(".search-result-row").forEach((row) => {
+    row.addEventListener("click", (e) => {
+      e.stopPropagation();
+      jumpToSearchResult(results[Number(row.dataset.i)]);
+    });
+  });
+  showSearchResults();
+}
+
+// Opens the matched booth's hall (and, for a hall with more than one
+// level/file, the specific level it's actually on -- see fileId's own
+// comment in indexCompany) and, when the match came straight off the real
+// floor plan, jumps directly into that booth's own detail sheet instead of
+// just leaving the visitor to find it on the canvas themselves. A match
+// from EXTRA_COMPANIES or live crowd data has no fileId (no real stand
+// polygon to look up), so those fall back to just opening the hall.
+async function jumpToSearchResult(entry) {
+  document.getElementById("search-input").value = entry.name;
+  document.getElementById("search-clear").classList.add("show");
+  hideSearchResults();
+  await openHall(entry.hallId);
+  if (!entry.fileId) return;
+  if (!currentHallLevel || currentHallLevel.file !== entry.fileId) {
+    await openHallLevel(entry.hallId, entry.fileId);
+  }
+  const plan = hallPlanCache.get(entry.fileId);
+  const stand = plan && (plan.stands || []).find((s) => boothNumbersMatch(s.nr, entry.boothNo));
+  if (!stand || !currentHallLevel) return;
+  const shifted = stand.poly.map(([x, y]) => [x + currentHallLevel.margin.w, y + currentHallLevel.margin.n]);
+  openBoothDetail(stand, shifted, currentHallLevel.extent);
+}
+
 function runSearch(q) {
-  if (!q) { renderVenueMap(); return; }
+  if (!q) { hideSearchResults(); renderVenueMap(); return; }
+  renderSearchResults(searchBoothsAndCompanies(q));
+
   const needle = q.toLowerCase();
   const matches = [...lootById.values()].filter(
     (l) => l.status === "active" && (l.company_name.toLowerCase().includes(needle) || l.items.toLowerCase().includes(needle))
   );
   const matchHalls = new Set(matches.map((m) => m.hall_id));
-  document.querySelectorAll(".hall-rect").forEach((rect) => {
-    // best-effort dim non-matching halls -- rect elements aren't keyed by
-    // hall id directly, so this recomputes from stored fill color; simplest
-    // robust approach is a full re-render pass instead.
-  });
   renderVenueMap();
   const svg = document.getElementById("venue-svg");
   [...svg.querySelectorAll("g")].forEach((g, i) => {

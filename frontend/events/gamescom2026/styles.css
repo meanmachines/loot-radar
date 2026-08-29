@@ -96,6 +96,7 @@ button { font-family: inherit; }
 /* ------------------------------------------------------------- search bar */
 
 #searchbar {
+  position: relative;
   margin: 0 1rem 0.7rem;
   display: flex;
   align-items: center;
@@ -114,6 +115,48 @@ button { font-family: inherit; }
 #search-input::placeholder { color: var(--text-dim); }
 #search-clear { display: none; color: var(--text-dim); cursor: pointer; }
 #search-clear.show { display: block; }
+
+/* Booth/company search results -- a dropdown under the search bar, not
+   the same thing as the loot-based hall dimming runSearch also does on
+   the venue map underneath (a booth match doesn't require anyone having
+   reported loot there). */
+#search-results {
+  display: none;
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  margin-top: 0.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  max-height: 60vh;
+  overflow-y: auto;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  z-index: 30;
+  -webkit-overflow-scrolling: touch;
+}
+#search-results.show { display: block; }
+.search-result-row {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.search-result-row:last-child { border-bottom: none; }
+.search-result-row:active { background: var(--glass-strong); }
+.search-result-icon {
+  width: 30px; height: 30px; flex-shrink: 0;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--glass);
+  color: var(--gold);
+}
+.search-result-icon svg { width: 15px; height: 15px; }
+.search-result-info { flex: 1; min-width: 0; }
+.search-result-title {
+  font-weight: 700; font-size: 0.85rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.search-result-sub { font-size: 0.72rem; color: var(--text-muted); }
 
 /* ------------------------------------------------------------------ views */
 
