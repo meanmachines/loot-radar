@@ -580,8 +580,15 @@ function boundsOf(points) {
 // the badge shows just the NUMERIC part (see shortBoothCode) -- enough to
 // spot at a glance and match against the booth's own real signage, with
 // the full id + company name always one tap away (see openBoothDetail).
-const STAND_BADGE_R = 2.15;
+const STAND_BADGE_R = 2.5;
 const STAND_BADGE_FONT = 2.0;
+// Measured live against the real rendered font, not guessed: 3 real digits
+// at this font-size run ~3.6 units wide and the ellipsis glyph alone is
+// ~2.1 units -- surprisingly wide, close to two whole digits. An earlier,
+// smaller circle's budget (3.2) was narrower than even a bare "0…" (~3.3),
+// so truncation had nowhere to stop and every badge collapsed to "0…"
+// regardless of its real code. This budget comfortably clears the common
+// 3-digit case (503 of 595 real booth codes) with real margin to spare.
 const STAND_BADGE_TEXT_W = STAND_BADGE_R * 2 - 1.1; // usable width inside the circle
 
 // Real booth ids are "LETTER-DIGITS", sometimes two joined by a space for a
