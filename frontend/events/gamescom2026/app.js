@@ -374,6 +374,14 @@ async function renderRealHallPlan(hallId, fileId) {
     if (seg) svg.appendChild(svgEl("line", { ...seg, class: "hallplan-door" }));
   }
 
+  // Real gap found live: some stands in the official data are exact
+  // duplicates at the same coordinates -- an alternate "g" id for the
+  // same physical space (e.g. "B-030 C-031" and "B-030g C-031g" sharing
+  // one polygon). Both still get drawn and stay tappable (either one
+  // opens the same spot's detail sheet), but only the FIRST one seen at a
+  // given position gets a text label, so the map doesn't render two
+  // overlapping labels on the exact same square.
+  const labeledPositions = new Set();
   for (const stand of plan.stands || []) {
     const shifted = stand.poly.map(([x, y]) => [x + margin.w, y + margin.n]);
     const named = stand.names && stand.names.length > 0;
@@ -386,7 +394,19 @@ async function renderRealHallPlan(hallId, fileId) {
       onBoothTap(stand, shifted, extent);
     });
     svg.appendChild(poly);
-    appendStandLabels(svg, stand, shifted, named);
+
+    // Real bug found live: the duplicate "g"-suffix stand lists the SAME
+    // four corners as its twin but starting from a different point in the
+    // list (and possibly wound the other direction), so a dedup key built
+    // by joining points IN ORDER treated them as different shapes and
+    // labeled both anyway. The bounding box is order-independent and, for
+    // these axis-aligned rectangles, fully identifies the shape.
+    const b = boundsOf(shifted);
+    const posKey = `${b.minX.toFixed(1)},${b.minY.toFixed(1)},${b.maxX.toFixed(1)},${b.maxY.toFixed(1)}`;
+    if (!labeledPositions.has(posKey)) {
+      labeledPositions.add(posKey);
+      appendStandLabels(svg, stand, shifted);
+    }
   }
 }
 
@@ -405,47 +425,56 @@ function boundsOf(points) {
 // instead of relying on SVG textLength compression, which either leaves
 // long names illegibly squished or (if only applied when text overflows)
 // needs the same width estimate anyway -- doing the estimate once, up
-// front, and truncating the STRING is simpler and reads better.
+// front, and truncating the STRING is simpler and reads better. The 0.68
+// multiplier is deliberately generous (i.e. assumes WIDER glyphs than a
+// typical monospace character actually is) -- better to under-fill a box
+// than overflow into the neighbor, which is exactly what happened with a
+// tighter estimate (see this function's own real-bug note below).
 function fitLabelText(text, availableWidthUnits, fontSizeUnits) {
-  const approxCharWidth = fontSizeUnits * 0.58;
-  const maxChars = Math.max(3, Math.floor(availableWidthUnits / approxCharWidth));
+  const approxCharWidth = fontSizeUnits * 0.68;
+  const maxChars = Math.max(2, Math.floor(availableWidthUnits / approxCharWidth));
   if (text.length <= maxChars) return text;
   return text.slice(0, Math.max(1, maxChars - 1)) + "…";
 }
 
-function appendStandLabels(svg, stand, shifted, named) {
+// Real bug found live: font-size was being set via `style="font-size:Npx"`
+// -- an absolute CSS unit, which does NOT scale with the SVG's own
+// viewBox transform. The booth polygons (plain unitless coordinate
+// attributes) DO scale with viewBox, so on any viewport wider than what
+// this was eyeballed against, boxes grew with the container while text
+// stayed pinned to real screen pixels -- completely decoupling label size
+// from the box it was supposed to fit, producing exactly the overlapping
+// oversized mess seen live. A bare numeric font-size (no unit) is SVG
+// user-space, same coordinate system as everything else here, and scales
+// in lockstep with box size regardless of viewport width.
+//
+// Also dropped the company-name second line entirely per direct feedback
+// ("text doesn't look good... just name and stall no") -- the map now
+// shows booth numbers only; company name still surfaces on tap (see
+// onBoothTap's own detail sheet) and gets pre-filled into the add-loot
+// form, which is where it actually needs to be read carefully rather than
+// skimmed at map scale.
+function appendStandLabels(svg, stand, shifted) {
   const b = boundsOf(shifted);
   const boxW = b.maxX - b.minX;
   const boxH = b.maxY - b.minY;
   // Too small to hold legible text at all -- skip rather than draw
   // overlapping unreadable glyphs on the tiniest slivers some real stands
-  // are (confirmed live: a handful of booths are under 2m in one
-  // dimension, e.g. narrow shared-wall stands).
-  if (Math.min(boxW, boxH) < 4) return;
+  // are (confirmed live: plenty of booths are under 5m in one dimension).
+  if (Math.min(boxW, boxH) < 5) return;
 
   const cx = (b.minX + b.maxX) / 2;
   const cy = (b.minY + b.maxY) / 2;
-  const availableW = boxW * 0.92;
-  const boothFont = Math.max(2.2, Math.min(4.6, Math.min(boxW, boxH) * 0.26));
+  const availableW = boxW * 0.88;
+  const boothFont = Math.max(1.8, Math.min(3.2, Math.min(boxW, boxH) * 0.22));
 
   const boothLabel = svgEl("text", {
-    x: cx, y: named ? cy - boothFont * 0.55 : cy,
+    x: cx, y: cy,
     class: "hallplan-stand-label",
-    style: `font-size:${boothFont}px`,
+    "font-size": boothFont,
   });
   boothLabel.textContent = fitLabelText(stand.nr, availableW, boothFont);
   svg.appendChild(boothLabel);
-
-  if (named && boxH > 9) {
-    const companyFont = Math.max(1.9, boothFont * 0.68);
-    const companyLabel = svgEl("text", {
-      x: cx, y: cy + boothFont * 0.7,
-      class: "hallplan-stand-company",
-      style: `font-size:${companyFont}px`,
-    });
-    companyLabel.textContent = fitLabelText(stand.names[0], availableW, companyFont);
-    svg.appendChild(companyLabel);
-  }
 }
 
 // Door "at"/"span" are documented (outline.json's own note field) as

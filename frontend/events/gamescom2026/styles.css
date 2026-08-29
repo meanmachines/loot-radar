@@ -1,21 +1,22 @@
 :root {
-  --bg: #05050a;
-  --bg-elev: #0d0e18;
-  --panel: #12131f;
-  --glass: rgba(255, 255, 255, 0.045);
-  --glass-strong: rgba(255, 255, 255, 0.08);
-  --border: rgba(255, 255, 255, 0.09);
-  --text: #f4f4f9;
-  --text-muted: #8b8ba3;
-  --text-dim: #5b5b74;
-  --magenta: #ff2ecb;
-  --cyan: #22e6ff;
-  --purple: #9b5bff;
-  --lime: #baff29;
-  --danger: #ff4d6d;
-  --gold: #ffd23f;
-  --silver: #cfd6e6;
-  --bronze: #e08a4b;
+  --bg: #0a0b0d;
+  --bg-elev: #14161b;
+  --panel: #14161b;
+  --glass: rgba(255, 255, 255, 0.04);
+  --glass-strong: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #eef0f3;
+  --text-muted: #8d94a0;
+  --text-dim: #565c66;
+  --primary: #4f7cff;
+  --primary-soft: rgba(79, 124, 255, 0.12);
+  --primary-dark: #3a5fd9;
+  --success: #35c98c;
+  --danger: #ef5a6c;
+  --gold: #e8b34a;
+  --silver: #b7bfc9;
+  --bronze: #c98a5c;
   --radius: 18px;
   --radius-sm: 12px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", system-ui, sans-serif;
@@ -31,13 +32,6 @@ html, body {
   font-family: var(--font);
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
-}
-
-body {
-  background-image:
-    radial-gradient(circle at 15% 8%, rgba(155, 91, 255, 0.16), transparent 45%),
-    radial-gradient(circle at 88% 15%, rgba(34, 230, 255, 0.13), transparent 40%),
-    radial-gradient(circle at 50% 95%, rgba(255, 46, 203, 0.10), transparent 45%);
 }
 
 button { font-family: inherit; }
@@ -65,21 +59,20 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   font-size: 1.05rem;
 }
 #wordmark .dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--magenta);
-  box-shadow: 0 0 10px 2px var(--magenta);
-  animation: pulse-dot 1.6s ease-in-out infinite;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--success);
+  animation: pulse-dot 1.8s ease-in-out infinite;
 }
 #wordmark small {
   color: var(--text-dim);
   font-weight: 600;
   font-size: 0.62rem;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   margin-left: 0.15rem;
 }
@@ -97,7 +90,7 @@ button { font-family: inherit; }
   transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
 }
 .icon-btn:active { transform: scale(0.9); }
-.icon-btn.on { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 12px -2px var(--cyan); }
+.icon-btn.on { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 .icon-btn svg { width: 18px; height: 18px; }
 
 /* ------------------------------------------------------------- search bar */
@@ -206,8 +199,8 @@ button { font-family: inherit; }
   100% { transform: scale(2.1); opacity: 0; }
 }
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.55; transform: scale(0.82); }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* Isometric 3D venue overview (see buildIsoHallBlock in app.js) -- each
@@ -263,7 +256,7 @@ button { font-family: inherit; }
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.sheet-header h2 { margin: 0; font-size: 1rem; font-weight: 800; flex: 1; }
+.sheet-header h2 { margin: 0; font-size: 1rem; font-weight: 700; flex: 1; }
 .sheet-header .sub { font-size: 0.72rem; color: var(--text-muted); }
 
 /* Level switcher -- only shown for a hall with real multi-storey plan
@@ -285,8 +278,8 @@ button { font-family: inherit; }
   cursor: pointer;
 }
 #hall-level-switcher .level-btn.active {
-  color: var(--bg);
-  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  color: #fff;
+  background: var(--primary);
   border-color: transparent;
 }
 
@@ -296,8 +289,8 @@ button { font-family: inherit; }
   position: relative;
   overflow: hidden;
   background:
-    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 /* Real booth-plan layer (see loadHallPlanFile/renderRealHallPlan in app.js)
@@ -309,9 +302,9 @@ button { font-family: inherit; }
   position: absolute; inset: 0;
   width: 100%; height: 100%;
 }
-.hallplan-wall { fill: none; stroke: rgba(255,255,255,0.22); stroke-width: 0.8; }
+.hallplan-wall { fill: none; stroke: rgba(255,255,255,0.2); stroke-width: 0.8; }
 .hallplan-block { fill: rgba(255,255,255,0.03); stroke: rgba(255,255,255,0.06); stroke-width: 0.3; pointer-events: none; }
-.hallplan-door { stroke: var(--cyan); stroke-width: 1.4; opacity: 0.55; stroke-linecap: round; }
+.hallplan-door { stroke: var(--primary); stroke-width: 1.4; opacity: 0.55; stroke-linecap: round; }
 .hallplan-stand {
   fill: rgba(255,255,255,0.05);
   stroke: rgba(255,255,255,0.14);
@@ -319,16 +312,16 @@ button { font-family: inherit; }
   cursor: pointer;
   transition: fill 0.1s ease;
 }
-.hallplan-stand.named { fill: rgba(155, 91, 255, 0.14); stroke: rgba(155, 91, 255, 0.35); }
-.hallplan-stand:active { fill: rgba(255, 46, 203, 0.35); }
-.hallplan-stand-label, .hallplan-stand-company {
+.hallplan-stand.named { fill: var(--primary-soft); stroke: rgba(79, 124, 255, 0.35); }
+.hallplan-stand:active { fill: rgba(79, 124, 255, 0.4); }
+.hallplan-stand-label {
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
   font-family: ui-monospace, monospace;
+  fill: rgba(255,255,255,0.72);
+  font-weight: 600;
 }
-.hallplan-stand-label { fill: rgba(255,255,255,0.55); font-weight: 600; }
-.hallplan-stand-company { fill: rgba(255,255,255,0.88); font-weight: 700; font-family: var(--font, inherit); }
 
 #hall-canvas-inner {
   position: absolute; inset: 0;
@@ -344,16 +337,16 @@ button { font-family: inherit; }
 .hall-pin .pin-glow {
   position: absolute; inset: -6px;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--magenta) 0%, transparent 70%);
-  opacity: 0.55;
+  background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
+  opacity: 0.5;
   animation: pin-breathe 2.4s ease-in-out infinite;
 }
 .hall-pin.hidden-entry .pin-glow { background: radial-gradient(circle, var(--danger) 0%, transparent 70%); }
-.hall-pin.nearest .pin-glow { background: radial-gradient(circle, var(--lime) 0%, transparent 70%); opacity: 0.75; }
-.hall-pin svg { position: relative; width: 30px; height: 30px; filter: drop-shadow(0 0 6px rgba(0,0,0,0.6)); }
+.hall-pin.nearest .pin-glow { background: radial-gradient(circle, var(--success) 0%, transparent 70%); opacity: 0.7; }
+.hall-pin svg { position: relative; width: 30px; height: 30px; filter: drop-shadow(0 0 4px rgba(0,0,0,0.7)); }
 @keyframes pin-breathe {
-  0%, 100% { opacity: 0.35; transform: scale(0.85); }
-  50% { opacity: 0.7; transform: scale(1.15); }
+  0%, 100% { opacity: 0.3; transform: scale(0.88); }
+  50% { opacity: 0.6; transform: scale(1.1); }
 }
 .hall-pin.new-pin { animation: pin-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
 @keyframes pin-pop {
@@ -374,13 +367,12 @@ button { font-family: inherit; }
 .me-dot-core {
   position: absolute; inset: 4px;
   border-radius: 50%;
-  background: var(--cyan);
-  box-shadow: 0 0 12px 3px var(--cyan);
+  background: var(--primary);
 }
 .me-dot-ring {
   position: absolute; inset: -4px;
   border-radius: 50%;
-  border: 2px solid var(--cyan);
+  border: 2px solid var(--primary);
   opacity: 0.5;
   animation: me-ring 1.8s ease-out infinite;
 }
@@ -388,7 +380,7 @@ button { font-family: inherit; }
   position: absolute;
   left: 50%; top: 50%;
   width: 2px; height: 22px;
-  background: linear-gradient(to top, var(--cyan), transparent);
+  background: linear-gradient(to top, var(--primary), transparent);
   transform-origin: bottom center;
   transform: translate(-50%, -100%) rotate(var(--heading, 0deg));
 }
@@ -419,20 +411,19 @@ button { font-family: inherit; }
 }
 .btn:active { transform: scale(0.95); }
 .btn-primary {
-  background: linear-gradient(135deg, var(--magenta), var(--purple));
+  background: var(--primary);
   color: #fff;
-  box-shadow: 0 4px 22px -6px rgba(255, 46, 203, 0.55);
 }
-.btn-primary:active { filter: brightness(1.1); }
+.btn-primary:active { background: var(--primary-dark); }
 .btn-ghost {
   background: var(--glass);
   color: var(--text);
   border: 1px solid var(--border);
 }
 .btn-outline-cyan {
-  background: rgba(34, 230, 255, 0.08);
-  color: var(--cyan);
-  border: 1px solid rgba(34, 230, 255, 0.4);
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid rgba(79, 124, 255, 0.4);
 }
 .btn-sm { padding: 0.45rem 0.85rem; font-size: 0.76rem; }
 .btn-icon-only { padding: 0.7rem; border-radius: 50%; }
@@ -463,7 +454,7 @@ button { font-family: inherit; }
   outline: none;
   transition: border-color 0.15s ease;
 }
-.field input[type="text"]:focus, .field textarea:focus { border-color: var(--purple); }
+.field input[type="text"]:focus, .field textarea:focus { border-color: var(--primary); }
 .field textarea { resize: vertical; min-height: 3.2rem; }
 .field-hint { font-size: 0.68rem; color: var(--text-dim); margin-top: 0.3rem; }
 
@@ -494,7 +485,7 @@ button { font-family: inherit; }
   margin-bottom: 0.9rem;
   background: var(--glass);
 }
-.loot-title { font-size: 1.05rem; font-weight: 800; margin: 0 0 0.1rem; }
+.loot-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 0.1rem; }
 .loot-meta { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.8rem; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
 .chip {
@@ -530,14 +521,14 @@ button { font-family: inherit; }
   cursor: pointer;
 }
 .validity-btn svg { width: 15px; height: 15px; }
-.validity-btn.confirm.active { border-color: var(--lime); color: var(--lime); background: rgba(186,255,41,0.08); }
-.validity-btn.dispute.active { border-color: var(--danger); color: var(--danger); background: rgba(255,77,109,0.08); }
+.validity-btn.confirm.active { border-color: var(--success); color: var(--success); background: rgba(53, 201, 140, 0.1); }
+.validity-btn.dispute.active { border-color: var(--danger); color: var(--danger); background: rgba(239, 90, 108, 0.1); }
 
 .validity-badge {
   display: inline-flex; align-items: center; gap: 0.3rem;
   font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 999px;
 }
-.validity-badge.good { background: rgba(186,255,41,0.12); color: var(--lime); }
+.validity-badge.good { background: rgba(53, 201, 140, 0.12); color: var(--success); }
 .validity-badge.unverified { background: rgba(255,255,255,0.07); color: var(--text-muted); }
 
 /* --------------------------------------------------------------- leaderboard */
@@ -554,7 +545,7 @@ button { font-family: inherit; }
   font-weight: 700;
   cursor: pointer;
 }
-.lb-tab.active { color: var(--bg); background: linear-gradient(135deg, var(--cyan), var(--purple)); border-color: transparent; }
+.lb-tab.active { color: #fff; background: var(--primary); border-color: transparent; }
 
 #leaderboard-list { flex: 1; overflow-y: auto; padding: 0 1rem 1.2rem; -webkit-overflow-scrolling: touch; }
 
@@ -574,9 +565,9 @@ button { font-family: inherit; }
   color: var(--text-muted);
   flex-shrink: 0;
 }
-.lb-rank.r1 { background: linear-gradient(135deg, var(--gold), #ffb400); color: #241900; box-shadow: 0 0 16px -4px var(--gold); }
-.lb-rank.r2 { background: linear-gradient(135deg, var(--silver), #8b93a8); color: #14161e; }
-.lb-rank.r3 { background: linear-gradient(135deg, var(--bronze), #a85a28); color: #1c0f04; }
+.lb-rank.r1 { background: var(--gold); color: #241900; }
+.lb-rank.r2 { background: var(--silver); color: #14161e; }
+.lb-rank.r3 { background: var(--bronze); color: #1c0f04; }
 .lb-info { flex: 1; min-width: 0; }
 .lb-title { font-weight: 700; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lb-sub { font-size: 0.72rem; color: var(--text-muted); }
@@ -620,7 +611,7 @@ button { font-family: inherit; }
   padding: 1.5rem 0.5rem 2rem;
 }
 .signin-intro svg { width: 40px; height: 40px; color: var(--text-dim); margin-bottom: 0.9rem; }
-.signin-intro h3 { margin: 0 0 0.4rem; font-size: 1.05rem; font-weight: 800; }
+.signin-intro h3 { margin: 0 0 0.4rem; font-size: 1.05rem; font-weight: 700; }
 .signin-intro p { margin: 0; font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; }
 
 .oauth-btn {
@@ -636,7 +627,7 @@ button { font-family: inherit; }
   cursor: pointer;
   margin-bottom: 0.7rem;
 }
-.oauth-btn:active { transform: scale(0.98); }
+.oauth-btn:active { background: var(--glass-strong); }
 .oauth-btn svg { width: 19px; height: 19px; flex-shrink: 0; }
 .oauth-btn.unavailable { opacity: 0.4; pointer-events: none; }
 .oauth-unavailable-note { text-align: center; font-size: 0.7rem; color: var(--text-dim); margin-top: 0.6rem; }
@@ -659,7 +650,7 @@ button { font-family: inherit; }
   color: var(--text-dim);
 }
 .profile-avatar-fallback svg { width: 24px; height: 24px; }
-.profile-name { font-weight: 800; font-size: 1rem; }
+.profile-name { font-weight: 700; font-size: 1rem; }
 .profile-email { font-size: 0.76rem; color: var(--text-muted); }
 
 .my-loot-section-title {
@@ -675,7 +666,7 @@ button { font-family: inherit; }
   justify-content: space-around;
   padding: 0.5rem 1rem calc(0.5rem + env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
-  background: rgba(10, 10, 16, 0.85);
+  background: rgba(10, 11, 13, 0.9);
   backdrop-filter: blur(14px);
   flex-shrink: 0;
   z-index: 20;
@@ -688,13 +679,12 @@ button { font-family: inherit; }
   text-transform: uppercase;
 }
 .nav-btn svg { width: 21px; height: 21px; }
-.nav-btn.active { color: var(--cyan); }
+.nav-btn.active { color: var(--primary); }
 .nav-btn.center {
   width: 52px; height: 52px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--magenta), var(--purple));
+  background: var(--primary);
   color: #fff;
   margin-top: -22px;
-  box-shadow: 0 4px 20px -4px rgba(255, 46, 203, 0.6);
 }
 .nav-btn.center svg { width: 24px; height: 24px; }
 
@@ -723,8 +713,8 @@ button { font-family: inherit; }
   animation: toast-in 0.25s ease;
   box-shadow: 0 8px 24px -8px rgba(0,0,0,0.6);
 }
-.toast.err { border-color: rgba(255,77,109,0.5); color: var(--danger); }
-.toast .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--lime); flex-shrink: 0; }
+.toast.err { border-color: rgba(239, 90, 108, 0.5); color: var(--danger); }
+.toast .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(-8px) scale(0.94); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -745,7 +735,7 @@ button { font-family: inherit; }
   position: absolute;
   top: 0.7rem; left: 50%; transform: translateX(-50%);
   font-size: 0.7rem; color: var(--text-muted);
-  background: rgba(10,10,16,0.8);
+  background: rgba(10,11,13,0.85);
   border: 1px solid var(--border);
   padding: 0.35rem 0.7rem;
   border-radius: 999px;
@@ -758,7 +748,7 @@ button { font-family: inherit; }
   right: 0.7rem; top: 0.7rem;
   font-size: 0.66rem;
   color: var(--text-muted);
-  background: rgba(10,10,16,0.8);
+  background: rgba(10,11,13,0.85);
   border: 1px solid var(--border);
   padding: 0.3rem 0.6rem;
   border-radius: 999px;
