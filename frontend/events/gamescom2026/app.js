@@ -520,6 +520,7 @@ async function renderRealHallPlan(hallId, fileId) {
     });
     poly.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (suppressHallClick) { suppressHallClick = false; return; }
       onBoothTap(stand, shifted, extent);
     });
     svg.appendChild(poly);
@@ -1021,13 +1022,23 @@ function clickToNormalizedPosition(e) {
 
 const HALL_ZOOM_MIN = 1;
 const HALL_ZOOM_MAX = 5;
-// A plain tap on empty floor (not a booth, not mid pinch/drag) steps the
-// zoom in toward the tapped point -- real feedback: the hall opens fully
-// zoomed out by design (resetHallZoom on openHall) so dense halls read as
-// an overview first, but the only way to zoom in was a two-finger pinch,
-// awkward one-handed on a phone. Repeated taps keep zooming in (capped at
-// HALL_ZOOM_MAX), same as a map app's double-tap-to-zoom.
+// Double-tap steps the zoom in toward the tapped point -- real feedback:
+// the hall opens fully zoomed out by design (resetHallZoom on openHall) so
+// dense halls read as an overview first, but the only way to zoom in was a
+// two-finger pinch, awkward one-handed on a phone. A SINGLE tap on empty
+// floor doesn't work as a "zoom here" trigger -- a dense real hall's
+// booths are packed edge to edge (confirmed live: almost the whole canvas
+// is covered by booth polygons, not open floor), so a plain single tap
+// almost always lands on a booth and needs to keep opening that booth's
+// detail sheet. Double-tap is the one gesture that reliably means "zoom"
+// regardless of what's underneath, same as any map app -- repeated
+// double-taps keep zooming in, capped at HALL_ZOOM_MAX.
 const HALL_TAP_ZOOM_STEP = 1.8;
+const HALL_DOUBLE_TAP_MS = 350;
+const HALL_DOUBLE_TAP_PX = 32;
+let lastHallTapAt = 0;
+let lastHallTapX = 0;
+let lastHallTapY = 0;
 let hallZoom = { scale: 1, x: 0, y: 0 };
 let hallGesture = null; // active pointer/touch gesture state, or null
 
@@ -1074,6 +1085,14 @@ document.getElementById("hall-canvas-wrap").addEventListener("wheel", (e) => {
   e.preventDefault();
   zoomHallAt(e.clientX, e.clientY, hallZoom.scale * (e.deltaY < 0 ? 1.18 : 1 / 1.18));
 }, { passive: false });
+
+// Desktop's own double-tap-to-zoom equivalent -- the touch double-tap
+// logic further down suppresses the click that would otherwise open a
+// booth on the second tap; a real dblclick event doesn't need that same
+// care since it fires after, not interleaved with, the two click events.
+document.getElementById("hall-canvas-wrap").addEventListener("dblclick", (e) => {
+  zoomHallAt(e.clientX, e.clientY, hallZoom.scale * HALL_TAP_ZOOM_STEP);
+});
 
 function touchDist(t0, t1) {
   return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
@@ -1123,11 +1142,28 @@ HALL_WRAP.addEventListener("touchmove", (e) => {
   }
 }, { passive: false });
 
-HALL_WRAP.addEventListener("touchend", () => {
+HALL_WRAP.addEventListener("touchend", (e) => {
   // A real drag (moved past the threshold) must not also register as a
   // tap-to-place-pin/tap-to-track on the click event that follows a touch
   // sequence -- suppressHallClick consumes exactly one click for that.
   if (hallGesture && hallGesture.moved && hallGesture.mode === "pan") suppressHallClick = true;
+  // Clean (non-dragged) tap -- check it against the previous one for a
+  // double-tap. Uses the touch's own start position (hallGesture.startX/Y)
+  // rather than changedTouches, since a tap by definition never moved.
+  if (hallGesture && !hallGesture.moved && hallGesture.mode === "pan") {
+    const now = Date.now();
+    const dx = hallGesture.startX - lastHallTapX;
+    const dy = hallGesture.startY - lastHallTapY;
+    if (now - lastHallTapAt <= HALL_DOUBLE_TAP_MS && Math.hypot(dx, dy) <= HALL_DOUBLE_TAP_PX) {
+      zoomHallAt(hallGesture.startX, hallGesture.startY, hallZoom.scale * HALL_TAP_ZOOM_STEP);
+      suppressHallClick = true; // this tap's own click must not also open a booth
+      lastHallTapAt = 0; // consumed -- a third quick tap starts a fresh pair, not a triple-trigger
+    } else {
+      lastHallTapAt = now;
+      lastHallTapX = hallGesture.startX;
+      lastHallTapY = hallGesture.startY;
+    }
+  }
   hallGesture = null;
 });
 
@@ -1178,8 +1214,6 @@ document.getElementById("hall-canvas-inner").addEventListener("click", (e) => {
   } else if (tracking) {
     const pos = clickToNormalizedPosition(e);
     setMePosition(pos.x, pos.y);
-  } else {
-    zoomHallAt(e.clientX, e.clientY, hallZoom.scale * HALL_TAP_ZOOM_STEP);
   }
 });
 
