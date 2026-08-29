@@ -1334,6 +1334,17 @@ function indexCompany(name, hallId, boothNo, pinX, pinY, fileId) {
   // the official floor plan -- EXTRA_COMPANIES and live crowd-reported
   // entries don't have it, so jumpToSearchResult falls back to just
   // opening the hall for those instead of the full booth-detail popup.
+  //
+  // Real bug found live: buildCompanyIndex indexes the floor plan FIRST,
+  // then live crowd data LAST (so a company gets found even if the floor
+  // plan never named its booth) -- but for a company that's on BOTH (the
+  // common case: someone reports loot/a giveaway at a real named booth),
+  // the later crowd-data write clobbered the earlier, more complete
+  // floor-plan entry and its fileId, silently breaking the direct-to-
+  // booth-detail jump for every real booth anyone had ever reported at.
+  // Never let a write without a fileId overwrite one that already has one.
+  const existing = companyIndex.get(key);
+  if (existing && existing.fileId && !fileId) return;
   companyIndex.set(key, { hallId, boothNo, name: name.trim(), pinX, pinY, fileId });
 }
 
