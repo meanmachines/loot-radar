@@ -4,8 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
 <title>Lootemall -- Gamescom</title>
-<meta name="theme-color" content="#05050a" />
+<meta name="theme-color" content="#0b0d12" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230a0b0d'/%3E%3Cpath d='M4 11c0-3 4-5 8-5s8 2 8 5' stroke='%23e8b34a' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3Crect x='3' y='11' width='18' height='8' rx='1.5' fill='%23e8b34a'/%3E%3Crect x='9.5' y='13.5' width='5' height='3.5' rx='0.6' fill='%230a0b0d'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700;800&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
 <link rel="stylesheet" href="auth-gate.css" />
 </head>
@@ -49,11 +52,22 @@
     </section>
 
     <section class="view" id="view-leaderboard">
+      <div id="lb-streak-card">
+        <div class="lb-streak-num" id="lb-streak-num">0</div>
+        <div class="lb-streak-info">
+          <div class="lb-streak-title">day streak</div>
+          <div class="lb-streak-sub">Report loot today to keep it alive</div>
+        </div>
+      </div>
       <div id="leaderboard-tabs">
         <button class="lb-tab active" data-tab="top_loot">Top Loot</button>
         <button class="lb-tab" data-tab="top_halls">Top Halls</button>
         <button class="lb-tab" data-tab="top_finders">Top Scouts</button>
         <button class="lb-tab" data-tab="giveaways">Giveaways</button>
+      </div>
+      <div id="lb-scope-row">
+        <button class="lb-scope-btn active" data-scope="global">Global</button>
+        <button class="lb-scope-btn" data-scope="friends">Friends</button>
       </div>
       <div id="leaderboard-list"></div>
     </section>

@@ -127,6 +127,30 @@ def current_user_id(request: Request) -> Optional[int]:
     return claims.get("uid") if claims else None
 
 
+# Friend codes -- a short, shareable identifier for the "add a friend"
+# flow (see main.py's own POST /friends). XOR against a fixed constant
+# rather than storing a random per-user code: it's a bijection (no
+# collisions, always decodable) with no migration/backfill needed for
+# existing users, and it keeps a code from being a trivially-sequential
+# "just guess id+1" enumeration. Not real security -- this only gates who
+# shows up on your OWN friends-scoped leaderboard, never anything private,
+# so light obfuscation is the right amount of effort here, not a
+# capability-token scheme.
+_FRIEND_CODE_MASK = 0x5F3A9E17
+
+
+def friend_code(user_id: int) -> str:
+    return f"LOOT-{(user_id ^ _FRIEND_CODE_MASK):X}"
+
+
+def decode_friend_code(code: str) -> Optional[int]:
+    digits = code.strip().upper().removeprefix("LOOT-").replace("-", "")
+    try:
+        return int(digits, 16) ^ _FRIEND_CODE_MASK
+    except ValueError:
+        return None
+
+
 def require_user(request: Request) -> int:
     """FastAPI dependency for the site-wide sign-in gate (see main.py's own
     Depends(auth.require_user) on every loot/giveaway/leaderboard/events

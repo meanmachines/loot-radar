@@ -48,6 +48,12 @@ async function apiPostJson(path, body) {
   return res.json();
 }
 
+async function apiDelete(path) {
+  const res = await fetch(API_BASE + path, { method: "DELETE", headers: { "X-Device-Id": deviceId() } });
+  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
+  return res.json();
+}
+
 async function apiCreateLoot(fields, photoBlob) {
   const qs = new URLSearchParams({ ...fields, event_id: EVENT_ID }).toString();
   const form = new FormData();
@@ -717,20 +723,25 @@ const STAND_COUNT_FONT = 1.55;
 // centered at (cx, cy) -- for a named stand this is a corner of its own
 // name card (see appendStandLabels), for an unnamed one it's just the
 // stand's own centroid, same spot this badge always used to live at alone.
-function appendCodeBadge(g, cx, cy, nr) {
-  const badge = svgEl("rect", {
-    x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
-    width: STAND_BADGE_W, height: STAND_BADGE_H,
-    rx: STAND_BADGE_RADIUS,
-    class: "hallplan-stand-badge",
-  });
-  g.appendChild(badge);
+// bare: unnamed stands have no card underneath them worth a chip on top of
+// -- just the code itself, direct on the light fill (matching the Design
+// Spec's unnamed-booth treatment), no dark pill.
+function appendCodeBadge(g, cx, cy, nr, bare) {
+  if (!bare) {
+    const badge = svgEl("rect", {
+      x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
+      width: STAND_BADGE_W, height: STAND_BADGE_H,
+      rx: STAND_BADGE_RADIUS,
+      class: "hallplan-stand-badge",
+    });
+    g.appendChild(badge);
+  }
   g.dataset.badgeCx = cx;
   g.dataset.badgeCy = cy;
 
   const boothLabel = svgEl("text", {
     x: cx, y: cy,
-    class: "hallplan-stand-label",
+    class: "hallplan-stand-label" + (bare ? " bare" : ""),
     "font-size": STAND_BADGE_FONT,
   });
   g.appendChild(boothLabel);
@@ -808,7 +819,7 @@ function appendStandLabels(svg, c, revealZoom) {
     }
   } else {
     svg.appendChild(g);
-    appendCodeBadge(g, cx, cy, nr);
+    appendCodeBadge(g, cx, cy, nr, true);
   }
 }
 
@@ -836,22 +847,23 @@ function updateLabelVisibility() {
     g.style.display = hallZoom.scale >= reveal - 0.001 ? "" : "none";
 
     const nr = g.dataset.nr;
-    const rect = g.querySelector(".hallplan-stand-badge");
-    // A named stand's card can skip the corner code badge entirely when
-    // the card's too small for one (see appendStandLabels) -- nothing
-    // below applies to it, it just always shows the full name on its card.
-    if (!rect) return;
-    const cx = parseFloat(g.dataset.badgeCx);
     const text = g.querySelector(".hallplan-stand-label");
+    // A named stand's card can skip the code entirely -- nothing below
+    // applies to it, it just always shows the full name on its card.
+    if (!text) return;
+    const rect = g.querySelector(".hallplan-stand-badge"); // absent for a bare (unnamed) code -- see appendCodeBadge
+    const cx = parseFloat(g.dataset.badgeCx);
     const countDot = g.querySelector(".hallplan-stand-count");
     const countLabel = g.querySelector(".hallplan-stand-count-label");
     if (expand) {
       if (text.textContent !== nr) {
         text.textContent = nr;
-        const fullW = text.getComputedTextLength();
-        const neededW = Math.max(STAND_BADGE_W, fullW + 1.6);
-        rect.setAttribute("x", cx - neededW / 2);
-        rect.setAttribute("width", neededW);
+        if (rect) {
+          const fullW = text.getComputedTextLength();
+          const neededW = Math.max(STAND_BADGE_W, fullW + 1.6);
+          rect.setAttribute("x", cx - neededW / 2);
+          rect.setAttribute("width", neededW);
+        }
       }
       // The full compound id is spelled out in one piece above, so the
       // compact-only "+N" corner marker (if this stand has one) would just
@@ -859,9 +871,13 @@ function updateLabelVisibility() {
       if (countDot) { countDot.style.display = "none"; countLabel.style.display = "none"; }
     } else {
       if (countDot) { countDot.style.display = ""; countLabel.style.display = ""; }
-      if (rect.getAttribute("width") === String(STAND_BADGE_W)) return;
-      rect.setAttribute("x", cx - STAND_BADGE_W / 2);
-      rect.setAttribute("width", STAND_BADGE_W);
+      if (rect) {
+        if (rect.getAttribute("width") === String(STAND_BADGE_W)) return;
+        rect.setAttribute("x", cx - STAND_BADGE_W / 2);
+        rect.setAttribute("width", STAND_BADGE_W);
+      } else if (text.textContent === nr) {
+        return; // bare code, still showing the (short) full id -- nothing to re-collapse
+      }
       fitLabelText(text, nr);
     }
   });
@@ -1864,19 +1880,42 @@ document.getElementById("booth-giveaway-btn").addEventListener("click", () => {
 // Leaderboard
 // ---------------------------------------------------------------------------
 
+// Friends/Global only means anything for "Top Scouts" (people) -- see
+// db.leaderboard_top_finders' own note on why top_loot/top_halls stay
+// global regardless (an item or a hall isn't "yours" to scope).
+let leaderboardScope = "global";
+
+function updateLbScopeVisibility() {
+  document.getElementById("lb-scope-row").classList.toggle("show", leaderboardTab === "top_finders");
+}
+
 document.querySelectorAll(".lb-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     leaderboardTab = tab.dataset.tab;
     document.querySelectorAll(".lb-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    updateLbScopeVisibility();
     renderLeaderboardList();
+  });
+});
+
+document.querySelectorAll(".lb-scope-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.scope === leaderboardScope) return;
+    leaderboardScope = btn.dataset.scope;
+    document.querySelectorAll(".lb-scope-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    loadLeaderboard();
   });
 });
 
 async function loadLeaderboard() {
   try {
-    leaderboardCache = await apiGet("/leaderboard");
+    leaderboardCache = await apiGet(`/leaderboard?scope=${leaderboardScope}`);
     lootRankById = new Map((leaderboardCache.top_loot || []).map((r, i) => [r.id, i + 1]));
     hallRankById = new Map((leaderboardCache.top_halls || []).map((r, i) => [r.hall_id, i + 1]));
+    const streakCard = document.getElementById("lb-streak-card");
+    const streak = leaderboardCache.my_streak || 0;
+    streakCard.classList.toggle("show", streak > 0);
+    if (streak > 0) document.getElementById("lb-streak-num").textContent = streak;
     renderLeaderboardList();
     renderVenueMap();
     if (openHallId) renderHallPins();
@@ -1959,14 +1998,22 @@ function renderLeaderboardList() {
     }).join("");
     list.querySelectorAll(".lb-card").forEach((card) => card.addEventListener("click", () => openHall(card.dataset.hall)));
   } else {
-    list.innerHTML = rows.map((r, i) => `<div class="lb-card">
+    // Points are a plain readout of report count (50/report, matches the
+    // "+50 pts" reward shown on the quick-report sheet) -- not a
+    // separately tracked score, so it can never drift out of sync with
+    // what actually earned it.
+    const myId = leaderboardCache.my_user_id;
+    list.innerHTML = rows.map((r, i) => `<div class="lb-card${r.user_id === myId ? " me" : ""}">
         <div class="lb-rank${rankClass(i)}">${i + 1}</div>
         <div class="lb-info">
-          <div class="lb-title">${escapeHtml(r.name)}</div>
+          <div class="lb-title">${escapeHtml(r.name)}${r.user_id === myId ? " (you)" : ""}</div>
           <div class="lb-sub">${r.loot_count} loot report${r.loot_count === 1 ? "" : "s"}</div>
         </div>
-        <div class="lb-score">${icon("trophy")}</div>
+        <div class="lb-score">${r.loot_count * 50}</div>
       </div>`).join("");
+    if (leaderboardScope === "friends" && rows.length <= 1) {
+      list.innerHTML += `<div class="empty-state">${icon("trophy")}<span>Add friends to see them here -- check Account for your code.</span></div>`;
+    }
   }
 }
 
@@ -2376,12 +2423,94 @@ async function renderAccountSheet() {
         ${currentUser.email ? `<div class="profile-email">${escapeHtml(currentUser.email)}</div>` : ""}
       </div>
     </div>
+    <div class="my-loot-section-title">Friends</div>
+    <div class="friend-code-row">
+      <div>
+        <div class="friend-code-label">Your code</div>
+        <div class="friend-code-value" id="my-friend-code">&hellip;</div>
+      </div>
+      <button class="btn btn-sm btn-ghost" id="btn-copy-code">Copy</button>
+    </div>
+    <div class="friend-add-row">
+      <input type="text" id="friend-code-input" placeholder="Add a friend's code" autocomplete="off" />
+      <button class="btn btn-sm btn-primary" id="btn-add-friend">Add</button>
+    </div>
+    <div id="friends-list"></div>
+
     <div class="my-loot-section-title">My loot finds</div>
     <div id="my-loot-list"><div class="empty-state">${icon("chest")}<span>Loading...</span></div></div>
     <button class="btn btn-ghost" id="btn-signout" style="width:100%;margin-top:1.2rem">${icon("logout")} Sign out</button>
   `;
   document.getElementById("btn-signout").addEventListener("click", signOut);
+  document.getElementById("btn-copy-code").addEventListener("click", copyMyFriendCode);
+  document.getElementById("btn-add-friend").addEventListener("click", submitAddFriend);
+  document.getElementById("friend-code-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitAddFriend();
+  });
   loadMyLoot();
+  loadFriends();
+}
+
+let myFriendCode = "";
+
+async function loadFriends() {
+  const list = document.getElementById("friends-list");
+  try {
+    const { friends, my_code } = await apiGet("/friends");
+    myFriendCode = my_code;
+    const codeEl = document.getElementById("my-friend-code");
+    if (codeEl) codeEl.textContent = my_code;
+    if (!list) return;
+    if (!friends.length) {
+      list.innerHTML = `<div class="empty-state">${icon("user")}<span>No friends yet -- share your code above.</span></div>`;
+      return;
+    }
+    list.innerHTML = friends.map((f) => `<div class="friend-row" data-id="${f.id}">
+      <div class="friend-row-avatar">${escapeHtml(companyInitials(f.display_name || "Scout"))}</div>
+      <div class="friend-row-name">${escapeHtml(f.display_name || "Scout")}</div>
+      <button class="friend-row-remove" data-id="${f.id}" title="Remove">&times;</button>
+    </div>`).join("");
+    list.querySelectorAll(".friend-row-remove").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await apiDelete(`/friends/${btn.dataset.id}`);
+          loadFriends();
+        } catch (e) {
+          toast("Could not remove friend", true);
+        }
+      });
+    });
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="empty-state">${icon("user")}<span>Could not load friends right now.</span></div>`;
+  }
+}
+
+async function copyMyFriendCode() {
+  if (!myFriendCode) return;
+  try {
+    await navigator.clipboard.writeText(myFriendCode);
+    toast("Code copied");
+  } catch (e) {
+    toast(myFriendCode);
+  }
+}
+
+async function submitAddFriend() {
+  const input = document.getElementById("friend-code-input");
+  const code = input.value.trim();
+  if (!code) return;
+  const btn = document.getElementById("btn-add-friend");
+  btn.disabled = true;
+  try {
+    const { friend } = await apiPostJson("/friends", { code });
+    input.value = "";
+    toast(`Added ${friend.display_name || "your friend"}`);
+    loadFriends();
+  } catch (e) {
+    toast(e.message || "Could not add that code", true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function loadMyLoot() {

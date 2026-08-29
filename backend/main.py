@@ -355,14 +355,64 @@ async def create_giveaway(
 
 
 @app.get("/leaderboard")
-async def leaderboard(event_id: str = "gamescom2026", user_id: int = Depends(auth.require_user)):
+async def leaderboard(
+    event_id: str = "gamescom2026", scope: str = "global", user_id: int = Depends(auth.require_user)
+):
     _valid_event(event_id)
-    top_loot, top_halls, top_finders = await asyncio.gather(
+    # "Top loot" and "top halls" are inherently global (an item or a hall
+    # isn't yours to scope to friends) -- only "top finders" (people) has a
+    # meaningful Friends view, so scope only ever touches that one query.
+    finder_ids = None
+    if scope == "friends":
+        friends = await db.list_friends(user_id)
+        finder_ids = [user_id] + [f["id"] for f in friends]
+    top_loot, top_halls, top_finders, streak = await asyncio.gather(
         db.leaderboard_top_loot(event_id),
         db.leaderboard_top_halls(event_id),
-        db.leaderboard_top_finders(event_id),
+        db.leaderboard_top_finders(event_id, user_ids=finder_ids),
+        db.user_streak(user_id, event_id),
     )
-    return {"top_loot": top_loot, "top_halls": top_halls, "top_finders": top_finders}
+    return {
+        "top_loot": top_loot, "top_halls": top_halls, "top_finders": top_finders,
+        "my_streak": streak, "my_user_id": user_id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Friends -- see db.py's friendships table comment and auth.py's
+# friend_code/decode_friend_code for the design (symmetric add, no accept
+# step, code is a bijection of the user's own id).
+# ---------------------------------------------------------------------------
+
+
+@app.get("/friends")
+async def get_friends(user_id: int = Depends(auth.require_user)):
+    friends = await db.list_friends(user_id)
+    return {"friends": friends, "my_code": auth.friend_code(user_id)}
+
+
+class AddFriendIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=40)
+
+
+@app.post("/friends")
+async def add_friend(body: AddFriendIn, user_id: int = Depends(auth.require_user)):
+    target_id = auth.decode_friend_code(body.code)
+    if target_id is None:
+        raise HTTPException(400, "That doesn't look like a valid friend code")
+    if target_id == user_id:
+        raise HTTPException(400, "That's your own code")
+    target = await db.get_user(target_id)
+    if target is None:
+        raise HTTPException(404, "No looter found with that code")
+    await db.add_friend(user_id, target_id)
+    return {"status": "ok", "friend": target}
+
+
+@app.delete("/friends/{friend_id}")
+async def delete_friend(friend_id: int, user_id: int = Depends(auth.require_user)):
+    await db.remove_friend(user_id, friend_id)
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------

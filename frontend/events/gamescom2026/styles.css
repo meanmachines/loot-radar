@@ -1,25 +1,65 @@
+/* "Neon Grid" design system -- see the Claude Design spec this maps 1:1
+   from (Lootemall Design Spec.dc.html): a serious, legible expo directory
+   (light booth cards) on a dark, glare-resistant game floor. Neon accents
+   (aqua/lemon/mint/amber/violet) are reserved for the loot/game layer,
+   never for chrome. */
 :root {
-  --bg: #0a0b0d;
-  --bg-elev: #14161b;
-  --panel: #14161b;
-  --glass: rgba(255, 255, 255, 0.04);
-  --glass-strong: rgba(255, 255, 255, 0.07);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text: #eef0f3;
-  --text-muted: #8d94a0;
-  --text-dim: #565c66;
-  --primary: #4f7cff;
-  --primary-soft: rgba(79, 124, 255, 0.12);
-  --primary-dark: #3a5fd9;
-  --success: #35c98c;
-  --danger: #ef5a6c;
-  --gold: #e8b34a;
-  --silver: #b7bfc9;
-  --bronze: #c98a5c;
-  --radius: 18px;
-  --radius-sm: 12px;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", system-ui, sans-serif;
+  --bg: #0b0d12;
+  --floor: #0e1017;
+  --surface: #151821;
+  --surface-2: #1c2029;
+  --surface-3: #262b37;
+  --line: #2d3340;
+  --line-strong: #3a4150;
+  --text: #eef1f6;
+  --text-2: #9aa4b4;
+  --text-3: #626b7c;
+
+  /* Booth cards are deliberately light -- the one inversion that
+     reconciles "signage-legible directory" with "dark neon game floor"
+     (see hallplan-stand-card and friends in the floor-plan section below). */
+  --booth: #e7ebf0;
+  --booth-named: #f4f6f9;
+  --booth-ink: #10141b;
+  --booth-code: #3b4655;
+
+  --aqua: #12e0c4;
+  --lemon: #ecff33;
+  --mint: #46e6b8;
+  --amber: #ffb02e;
+  --violet: #7b5cff;
+  --red: #ff4d5e;
+
+  --font: 'Archivo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-display: 'Saira Condensed', var(--font);
+  --font-mono: 'JetBrains Mono', ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+  --r-sm: 6px; --r-md: 10px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
+
+  /* Back-compat aliases -- every existing rule in this file references
+     these names; remapping the VALUES here repaints the whole app in the
+     new palette without touching each individual rule. New component work
+     should reach for the tokens above directly instead of these. */
+  --bg-elev: var(--surface);
+  --panel: var(--surface);
+  --glass: var(--surface-2);
+  --glass-strong: var(--surface-3);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --text-muted: var(--text-2);
+  --text-dim: var(--text-3);
+  --primary: var(--aqua);
+  --primary-soft: rgba(18, 224, 196, 0.14);
+  --primary-dark: #0a9e8c;
+  --success: var(--mint);
+  --danger: var(--red);
+  --gold: #ffd23a;
+  --silver: #c8d2e0;
+  --bronze: #e08a3c;
+  --radius: var(--r-xl);
+  --radius-sm: var(--r-md);
 }
 
 * { box-sizing: border-box; }
@@ -68,9 +108,11 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  font-size: 1.05rem;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  font-size: 1.2rem;
 }
 #wordmark .dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -115,12 +157,18 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: var(--glass);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.55rem 0.8rem;
+  background: var(--surface-2);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 0.5rem 0.8rem;
   flex-shrink: 0;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
+.searchbar:focus-within {
+  border-color: var(--lemon);
+  box-shadow: 0 0 0 4px rgba(236, 255, 51, 0.13);
+}
+.searchbar:focus-within svg { color: var(--lemon); }
 .searchbar svg { width: 16px; height: 16px; color: var(--text-dim); flex-shrink: 0; }
 .search-input {
   background: none; border: none; outline: none; color: var(--text);
@@ -339,11 +387,22 @@ button { font-family: inherit; }
      at the real top edge of the screen, same notch risk as #topbar (see
      that rule's own comment). */
   padding: calc(0.9rem + env(safe-area-inset-top)) 1rem 0.9rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 .sheet-header h2 { margin: 0; font-size: 1rem; font-weight: 700; flex: 1; }
-.sheet-header .sub { font-size: 0.72rem; color: var(--text-muted); }
+.sheet-header .sub { font-size: 0.72rem; color: var(--text-2); }
+/* Hall name specifically gets the Display/Hall type style -- the
+   expo-signage-echoing Saira Condensed treatment the spec reserves for
+   hall headers, not generic sheet titles (booth/company names etc. stay
+   Archivo -- see .booth-identity-name, unchanged). */
+#hall-sheet-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.5rem;
+  text-transform: uppercase;
+  line-height: 0.95;
+}
 
 /* Level switcher -- only shown for a hall with real multi-storey plan
    data (see HALLPLAN_LEVELS in halls.js), e.g. hall 5's two real storeys. */
@@ -388,9 +447,10 @@ button { font-family: inherit; }
      braces -- see that rule's own comment). */
   touch-action: none;
   overscroll-behavior: contain;
-  background:
-    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-color: var(--floor);
+  background-image:
+    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 /* Real booth-plan layer (see loadHallPlanFile/renderRealHallPlan in app.js)
@@ -402,82 +462,69 @@ button { font-family: inherit; }
   position: absolute; inset: 0;
   width: 100%; height: 100%;
 }
-.hallplan-wall { fill: none; stroke: rgba(255,255,255,0.2); stroke-width: 0.8; }
-.hallplan-block { fill: rgba(255,255,255,0.03); stroke: rgba(255,255,255,0.06); stroke-width: 0.3; pointer-events: none; }
-.hallplan-door { stroke: var(--primary); stroke-width: 1.4; opacity: 0.55; stroke-linecap: round; }
+.hallplan-wall { fill: none; stroke: var(--line-strong); stroke-width: 0.8; }
+.hallplan-block { fill: rgba(255,255,255,0.02); stroke: rgba(255,255,255,0.05); stroke-width: 0.3; pointer-events: none; }
+.hallplan-door { stroke: var(--aqua); stroke-width: 1.4; opacity: 0.6; stroke-linecap: round; }
+/* Neon Grid: EVERY booth is a light card on the dark floor -- not just
+   named ones -- matching the real official floor plan's own look (direct
+   feedback + the Design Spec this maps from). Named gets the brighter
+   near-white shade, unnamed a step darker, so the eye still separates
+   "real exhibitor" from "unlabeled space" without either reading as the
+   old dark-map treatment. */
 .hallplan-stand {
-  fill: rgba(255,255,255,0.05);
-  stroke: rgba(255,255,255,0.14);
-  stroke-width: 0.3;
+  fill: var(--booth);
+  stroke: #d3dae2;
+  stroke-width: 0.22;
   cursor: pointer;
   transition: fill 0.1s ease;
 }
-.hallplan-stand.named { fill: var(--primary-soft); stroke: rgba(79, 124, 255, 0.35); }
-.hallplan-stand:active { fill: rgba(79, 124, 255, 0.4); }
-/* Named stand's "signage card" -- direct feedback comparing this map
-   against the real official Gamescom floor plan, which shows each
-   exhibitor's own name/logo filling its booth's box on a light card, not
-   just an abstract code sitting in a dark pill. Light against the map's
-   otherwise-dark canvas so a real exhibitor's booth reads at a glance,
-   the same way it does on the real venue signage. */
+.hallplan-stand.named { fill: var(--booth-named); stroke: #cfd6df; }
+.hallplan-stand:active { fill: rgba(18, 224, 196, 0.35); }
+/* Named stand's "signage card" -- an idealized rect inset within the
+   stand's own (often irregular) real polygon, sized/positioned by
+   appendStandLabels, carrying the exhibitor name front and center. */
 .hallplan-stand-card {
-  fill: #f3f4f7;
-  stroke: rgba(10, 11, 13, 0.28);
-  stroke-width: 0.28;
+  fill: var(--booth-named);
+  stroke: #d3dae2;
+  stroke-width: 0.26;
   pointer-events: none;
-  filter: drop-shadow(0 0.4px 1px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 0.4px 1px rgba(0, 0, 0, 0.4));
 }
 .hallplan-stand-name {
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
-  font-family: var(--font);
+  font-family: var(--font-display);
   font-weight: 800;
-  fill: #14161a;
+  fill: var(--booth-ink);
 }
-/* Compact "coin" badge -- fixed size on every booth regardless of that
-   booth's own size (see appendStandLabels' own comment for the full
-   history: per-box scaled text, then a wide stretched pill/tag, then a
-   circle with just the digits, all replaced after direct feedback -- the
-   circle dropped the hall-letter prefix to stay small, which made booths
-   hard to actually find against their own real signage, so this shows the
-   full id again in a rounded rect sized to fit it). Sits ON the booth's
-   fill (not blended into it), so it reads consistently whether the booth
-   underneath is unnamed (plain dark) or named (blue-tinted). Gold ring,
-   not the app's own brand blue -- this is a LOOT map, and gold is already
-   this app's rank/treasure color everywhere else (leaderboard ranks, venue
-   hotspots), so the ring reads as "this is a marker," like a coin/token. */
+/* Booth-code chip -- a solid dark pill (not a gold ring on a dark coin;
+   the whole badge concept moved onto a light card, see above, so it no
+   longer needs to stand out against a dark map on its own). Mono, since a
+   booth code is a machine-matchable identifier, same as JetBrains Mono's
+   role everywhere else in the type scale. */
 .hallplan-stand-badge {
-  fill: rgba(6, 7, 9, 0.94);
-  stroke: var(--gold);
-  stroke-width: 0.34;
+  fill: var(--booth-ink);
   pointer-events: none;
-  filter: drop-shadow(0 0.3px 0.7px rgba(0, 0, 0, 0.55));
 }
-/* Same font stack as the rest of the app (--font) -- the earlier monospace
-   choice read as noticeably softer/lower-contrast than the rest of this
-   otherwise-crisp UI (real feedback: "washed off low pixel text"), plus a
-   thin dark outline (paint-order draws it behind the fill) so every glyph
-   stays legible against any booth's own fill color, the same technique a
-   real map app's point labels use. */
 .hallplan-stand-label {
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
-  font-family: var(--font);
-  font-weight: 800;
-  fill: #ffffff;
-  stroke: rgba(0, 0, 0, 0.5);
-  stroke-width: 0.32;
-  paint-order: stroke fill;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  fill: #e7ebf0;
 }
+/* An unnamed stand has no card/chip at all -- just its code, direct on the
+   light fill (see appendCodeBadge's bare-code path in app.js). */
+.hallplan-stand-label.bare { fill: var(--booth-code); }
 /* "+N" corner marker for a shared/double stand's compact badge (see
-   appendStandLabels) -- solid gold fill (not the badge's own dark/gold-
-   ring look) so it reads as a distinct notification-count bubble sitting
-   ON the badge's corner, not as part of the badge itself. */
+   appendStandLabels) -- amber, a color otherwise reserved for "there's
+   more here" states, so it doesn't compete with the aqua/lemon that mean
+   something else (live loot, active nav). */
 .hallplan-stand-count {
-  fill: var(--gold);
-  stroke: rgba(6, 7, 9, 0.94);
+  fill: var(--amber);
+  stroke: var(--booth-ink);
   stroke-width: 0.3;
   pointer-events: none;
 }
@@ -485,9 +532,9 @@ button { font-family: inherit; }
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
-  font-family: var(--font);
+  font-family: var(--font-display);
   font-weight: 800;
-  fill: #0a0b0d;
+  fill: #1a1200;
 }
 
 #hall-canvas-inner {
@@ -579,8 +626,8 @@ button { font-family: inherit; }
 
 .btn {
   border: none;
-  border-radius: 999px;
-  padding: 0.7rem 1.2rem;
+  border-radius: var(--r-pill);
+  padding: 0.75rem 1.2rem;
   font-weight: 700;
   font-size: 0.85rem;
   cursor: pointer;
@@ -589,21 +636,21 @@ button { font-family: inherit; }
   gap: 0.45rem;
   transition: transform 0.12s ease, filter 0.15s ease;
 }
-.btn:active { transform: scale(0.95); }
+.btn:active { transform: scale(0.97); }
 .btn-primary {
-  background: var(--primary);
-  color: #fff;
+  background: var(--aqua);
+  color: #0b0d12;
 }
 .btn-primary:active { background: var(--primary-dark); }
 .btn-ghost {
-  background: var(--glass);
+  background: var(--surface-3);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
 }
 .btn-outline-cyan {
-  background: var(--primary-soft);
-  color: var(--primary);
-  border: 1px solid rgba(79, 124, 255, 0.4);
+  background: rgba(18, 224, 196, 0.12);
+  color: var(--aqua);
+  border: 1px solid rgba(18, 224, 196, 0.4);
 }
 .btn-sm { padding: 0.45rem 0.85rem; font-size: 0.76rem; }
 .btn-icon-only { padding: 0.7rem; border-radius: 50%; }
@@ -649,19 +696,19 @@ button { font-family: inherit; }
   margin-bottom: 0.7rem;
 }
 .item-chip {
-  padding: 0.42rem 0.85rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--glass);
-  color: var(--text);
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  color: var(--text-2);
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
 }
 .item-chip:active { transform: scale(0.94); }
-.item-chip.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
+.item-chip.selected { background: rgba(18, 224, 196, 0.12); border-color: var(--aqua); color: var(--text); }
 
 /* A proper big camera CTA, not a small dashed hint box -- same "super
    quick UI" feedback. A <label for="form-photo"> now (not a plain div),
@@ -760,19 +807,64 @@ button { font-family: inherit; }
 
 /* --------------------------------------------------------------- leaderboard */
 
+/* Streak card -- gamification stays a thin reward layer on top of the
+   real leaderboard, not a gate: it's just a card, never blocks anything.
+   Points come straight off report count (see app.js's renderLeaderboardList,
+   loot_count * 50) rather than a separate tracked score. */
+#lb-streak-card {
+  display: none;
+  align-items: center; gap: 0.9rem;
+  margin: 0.8rem 1rem 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--r-xl);
+  border: 1px solid #164a44;
+  background: linear-gradient(120deg, #0c1a1b, var(--surface));
+}
+#lb-streak-card.show { display: flex; }
+.lb-streak-num { font-family: var(--font-display); font-weight: 800; font-size: 2.2rem; color: var(--mint); line-height: 1; }
+.lb-streak-info { flex: 1; min-width: 0; }
+.lb-streak-title { font-weight: 700; font-size: 0.92rem; }
+.lb-streak-sub { font-size: 0.74rem; color: var(--text-2); }
+
 #leaderboard-tabs { display: flex; gap: 0.4rem; padding: 0 1rem 0.7rem; flex-shrink: 0; }
 .lb-tab {
   flex: 1;
   padding: 0.5rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--glass);
-  color: var(--text-muted);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-2);
   font-size: 0.76rem;
   font-weight: 700;
   cursor: pointer;
 }
-.lb-tab.active { color: #fff; background: var(--primary); border-color: transparent; }
+.lb-tab.active { color: #0b0d12; background: var(--lemon); border-color: transparent; }
+
+/* Friends / Global scope -- only meaningful for the "Top Scouts" (people)
+   tab, see app.js's leaderboardScope + updateLbScopeVisibility. */
+#lb-scope-row {
+  display: none;
+  gap: 6px;
+  margin: 0 1rem 0.8rem;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+#lb-scope-row.show { display: flex; }
+.lb-scope-btn {
+  flex: 1;
+  padding: 0.5rem 0;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--text-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.lb-scope-btn.active { background: var(--surface-3); color: var(--text); }
 
 #leaderboard-list { flex: 1; overflow-y: auto; padding: 0 1rem 1.2rem; -webkit-overflow-scrolling: touch; }
 
@@ -795,10 +887,11 @@ button { font-family: inherit; }
 .lb-rank.r1 { background: var(--gold); color: #241900; }
 .lb-rank.r2 { background: var(--silver); color: #14161e; }
 .lb-rank.r3 { background: var(--bronze); color: #1c0f04; }
+.lb-card.me { border-color: var(--violet); background: rgba(123, 92, 255, 0.12); }
 .lb-info { flex: 1; min-width: 0; }
-.lb-title { font-weight: 700; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lb-sub { font-size: 0.72rem; color: var(--text-muted); }
-.lb-score { display: flex; align-items: center; gap: 0.25rem; font-weight: 800; color: var(--gold); font-size: 0.85rem; flex-shrink: 0; }
+.lb-title { font-family: var(--font-display); font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-sub { font-size: 0.72rem; color: var(--text-2); }
+.lb-score { display: flex; align-items: center; gap: 0.25rem; font-family: var(--font-display); font-weight: 800; color: var(--text); font-size: 1.05rem; flex-shrink: 0; }
 .lb-score svg { width: 14px; height: 14px; }
 
 .empty-state {
@@ -932,6 +1025,40 @@ button { font-family: inherit; }
   font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
   color: var(--text-muted); margin-bottom: 0.6rem;
 }
+.my-loot-section-title:not(:first-child) { margin-top: 1.4rem; }
+
+.friend-code-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 0.7rem 0.85rem; margin-bottom: 0.7rem;
+}
+.friend-code-label { font-size: 0.68rem; color: var(--text-2); margin-bottom: 0.15rem; }
+.friend-code-value { font-family: var(--font-mono); font-weight: 700; font-size: 0.95rem; letter-spacing: 0.02em; }
+.friend-add-row { display: flex; gap: 0.5rem; margin-bottom: 0.9rem; }
+.friend-add-row input {
+  flex: 1; min-width: 0;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--text); padding: 0.6rem 0.75rem; font-size: 0.85rem; font-family: var(--font-mono);
+  outline: none;
+}
+.friend-add-row input:focus { border-color: var(--lemon); }
+.friend-row {
+  display: flex; align-items: center; gap: 0.65rem;
+  padding: 0.5rem 0.1rem;
+  border-bottom: 1px solid var(--line);
+}
+.friend-row:last-child { border-bottom: none; }
+.friend-row-avatar {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-3); color: var(--text-2);
+  font-weight: 700; font-size: 0.72rem;
+}
+.friend-row-name { flex: 1; min-width: 0; font-weight: 600; font-size: 0.86rem; }
+.friend-row-remove {
+  background: none; border: none; color: var(--text-3);
+  font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 0.3rem 0.5rem;
+}
 
 /* --------------------------------------------------------------- bottom nav */
 
@@ -940,26 +1067,27 @@ button { font-family: inherit; }
   align-items: center;
   justify-content: space-around;
   padding: 0.5rem 1rem calc(0.5rem + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--border);
-  background: rgba(10, 11, 13, 0.9);
+  border-top: 1px solid var(--line);
+  background: rgba(18, 20, 29, 0.86);
   backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   flex-shrink: 0;
   z-index: 20;
 }
 .nav-btn {
-  background: none; border: none; color: var(--text-dim);
+  background: none; border: none; color: var(--text-3);
   display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
-  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.03em;
+  font-size: 0.62rem; font-weight: 600; letter-spacing: 0.03em;
   cursor: pointer; padding: 0.3rem 0.6rem;
-  text-transform: uppercase;
 }
 .nav-btn svg { width: 21px; height: 21px; }
-.nav-btn.active { color: var(--primary); }
+.nav-btn.active { color: var(--lemon); font-weight: 700; }
 .nav-btn.center {
-  width: 52px; height: 52px; border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
-  margin-top: -22px;
+  width: 54px; height: 54px; border-radius: 50%;
+  background: var(--aqua);
+  color: #0b0d12;
+  margin-top: -20px;
+  box-shadow: 0 8px 22px rgba(18, 224, 196, 0.4);
 }
 .nav-btn.center svg { width: 24px; height: 24px; }
 

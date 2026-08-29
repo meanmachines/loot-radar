@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import asyncpg
@@ -137,6 +138,22 @@ CREATE TABLE IF NOT EXISTS loot_ratings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(loot_id, device_id)
 );
+
+-- Symmetric, no request/accept flow -- adding someone's friend code (see
+-- auth.py's friend_code/decode_friend_code) inserts BOTH directions in one
+-- transaction (add_friend below), so "my friends" is always a plain
+-- WHERE user_id=$1 with no join needed to figure out who accepted whom.
+-- Deliberately low-ceremony: this is a few-day trade-show app, not a
+-- social network, and a mutual add is the same trust model a real "friend
+-- code" already implies (you only get someone's code from them directly).
+CREATE TABLE IF NOT EXISTS friendships (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    friend_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(user_id, friend_id)
+);
+CREATE INDEX IF NOT EXISTS friendships_user_idx ON friendships(user_id);
 """
 
 # Every column the frontend needs, MINUS the photo bytes themselves (those
@@ -624,27 +641,125 @@ async def leaderboard_top_halls(event_id: str, limit: int = 11) -> list[dict[str
     return result
 
 
-async def leaderboard_top_finders(event_id: str, limit: int = 20) -> list[dict[str, Any]]:
-    cache_key = ("top_finders", event_id, limit)
+async def leaderboard_top_finders(
+    event_id: str, limit: int = 20, user_ids: Optional[list[int]] = None
+) -> list[dict[str, Any]]:
+    # Keyed by user_id (falling back to the free-typed submitted_by only for
+    # anonymous, user_id-less reports) -- previously this grouped by
+    # submitted_by alone, which fragmented a signed-in user's own score
+    # across entries if they ever typed their name differently, and gave no
+    # stable identity to scope a Friends leaderboard against. Grouping by
+    # (user_id, display_name) collapses all of a real account's reports
+    # into one row regardless of what they typed at report time.
+    cache_key = ("top_finders", event_id, limit, tuple(sorted(user_ids)) if user_ids else None)
     cached = _leaderboard_cache.get(cache_key)
     if cached is not None:
         return cached
     async with pool().acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT coalesce(nullif(submitted_by, ''), 'Anonymous scout') AS name,
-                   count(*) AS loot_count
-            FROM loot_entries
-            WHERE status='active' AND event_id=$1
-            GROUP BY 1
-            ORDER BY loot_count DESC
-            LIMIT $2
-            """,
-            event_id, limit,
-        )
+        if user_ids is not None:
+            rows = await conn.fetch(
+                """
+                SELECT le.user_id,
+                       coalesce(u.display_name, 'Anonymous scout') AS name,
+                       count(*) AS loot_count
+                FROM loot_entries le
+                LEFT JOIN users u ON u.id = le.user_id
+                WHERE le.status='active' AND le.event_id=$1 AND le.user_id = ANY($2::int[])
+                GROUP BY le.user_id, u.display_name
+                ORDER BY loot_count DESC
+                LIMIT $3
+                """,
+                event_id, user_ids, limit,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT le.user_id,
+                       coalesce(u.display_name, nullif(le.submitted_by, ''), 'Anonymous scout') AS name,
+                       count(*) AS loot_count
+                FROM loot_entries le
+                LEFT JOIN users u ON u.id = le.user_id
+                WHERE le.status='active' AND le.event_id=$1
+                GROUP BY le.user_id, coalesce(u.display_name, nullif(le.submitted_by, ''), 'Anonymous scout')
+                ORDER BY loot_count DESC
+                LIMIT $2
+                """,
+                event_id, limit,
+            )
     result = [dict(r) for r in rows]
     _leaderboard_cache.set(cache_key, result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Friends -- see friendships' own table comment for the symmetric, no-accept
+# design. Points/streak are computed here too since both only ever matter
+# next to a leaderboard, not as their own concept elsewhere.
+# ---------------------------------------------------------------------------
+
+
+async def add_friend(user_id: int, friend_id: int) -> None:
+    async with pool().acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "INSERT INTO friendships (user_id, friend_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                user_id, friend_id,
+            )
+            await conn.execute(
+                "INSERT INTO friendships (user_id, friend_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                friend_id, user_id,
+            )
+
+
+async def remove_friend(user_id: int, friend_id: int) -> None:
+    async with pool().acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM friendships WHERE user_id=$1 AND friend_id=$2", user_id, friend_id)
+            await conn.execute("DELETE FROM friendships WHERE user_id=$1 AND friend_id=$2", friend_id, user_id)
+
+
+async def list_friends(user_id: int) -> list[dict[str, Any]]:
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT u.id, u.display_name, u.avatar_url
+            FROM friendships f JOIN users u ON u.id = f.friend_id
+            WHERE f.user_id = $1
+            ORDER BY u.display_name
+            """,
+            user_id,
+        )
+    return [dict(r) for r in rows]
+
+
+async def user_streak(user_id: int, event_id: str) -> int:
+    # Consecutive calendar days (UTC) with at least one active report,
+    # ending today or yesterday -- yesterday still counts so a streak
+    # doesn't silently die the moment the clock crosses midnight before
+    # someone's had a chance to report anything today.
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT (created_at AT TIME ZONE 'UTC')::date AS d
+            FROM loot_entries
+            WHERE user_id=$1 AND event_id=$2 AND status='active'
+            ORDER BY d DESC
+            """,
+            user_id, event_id,
+        )
+    if not rows:
+        return 0
+    dates = [r["d"] for r in rows]
+    today = datetime.now(timezone.utc).date()
+    if dates[0] not in (today, today - timedelta(days=1)):
+        return 0
+    streak = 1
+    for i in range(1, len(dates)):
+        if dates[i - 1] - dates[i] == timedelta(days=1):
+            streak += 1
+        else:
+            break
+    return streak
 
 
 class RateLimiter:
