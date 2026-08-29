@@ -147,6 +147,7 @@ document.getElementById("search-clear").addEventListener("click", () => {
   renderLootFeed();
 });
 
+document.getElementById("btn-refresh").innerHTML = icon("refresh");
 document.getElementById("btn-refresh").addEventListener("click", refreshAll);
 
 // ---------------------------------------------------------------------------
