@@ -514,10 +514,10 @@ async function renderRealHallPlan(hallId, fileId) {
   const placed = [];
   for (const c of labelCandidates) {
     const rect = {
-      minX: c.cx - STAND_BADGE_R - LABEL_GAP,
-      maxX: c.cx + STAND_BADGE_R + LABEL_GAP,
-      minY: c.cy - STAND_BADGE_R - LABEL_GAP,
-      maxY: c.cy + STAND_BADGE_R + LABEL_GAP,
+      minX: c.cx - STAND_BADGE_W / 2 - LABEL_GAP,
+      maxX: c.cx + STAND_BADGE_W / 2 + LABEL_GAP,
+      minY: c.cy - STAND_BADGE_H / 2 - LABEL_GAP,
+      maxY: c.cy + STAND_BADGE_H / 2 + LABEL_GAP,
     };
     const collides = placedRects.some(
       (r) => rect.minX < r.maxX && rect.maxX > r.minX && rect.minY < r.maxY && rect.maxY > r.minY
@@ -573,44 +573,30 @@ function boundsOf(points) {
 // a big one -- reads as one consistent wayfinding layer across the whole
 // map, the way a real map's point labels do, instead of text that's
 // literally sized by geography.
-// Compact circular "coin" badge, not a wide stretched-out tag -- direct
-// feedback: the tag shape read as "stretched out," wanted something more
-// like a cute number icon. A booth's real id (e.g. "B-071") is alphanumeric
-// though, not a simple sequential number a tiny circle can hold whole, so
-// the badge shows just the NUMERIC part (see shortBoothCode) -- enough to
-// spot at a glance and match against the booth's own real signage, with
-// the full id + company name always one tap away (see openBoothDetail).
-const STAND_BADGE_R = 2.5;
+// Compact "coin" badge -- rounded rect, not a full stadium pill and not a
+// wide stretched-out tag either (both tried and rejected by direct
+// feedback). Shows the FULL real booth id including its hall-letter prefix
+// ("B-071", not just "071") -- a circle small enough to look "cute" only
+// had room for the digits, but the letter is what actually makes a booth
+// findable against its own real signage (direct feedback: dropping it
+// "hard to find it"). Sized from the real measured width of a 5-char id
+// like "B-071" at STAND_BADGE_FONT, not guessed.
+const STAND_BADGE_W = 7.6;
+const STAND_BADGE_H = 4.0;
+const STAND_BADGE_RADIUS = 1.3;
 const STAND_BADGE_FONT = 2.0;
-// Measured live against the real rendered font, not guessed: 3 real digits
-// at this font-size run ~3.6 units wide and the ellipsis glyph alone is
-// ~2.1 units -- surprisingly wide, close to two whole digits. An earlier,
-// smaller circle's budget (3.2) was narrower than even a bare "0…" (~3.3),
-// so truncation had nowhere to stop and every badge collapsed to "0…"
-// regardless of its real code. This budget comfortably clears the common
-// 3-digit case (503 of 595 real booth codes) with real margin to spare.
-const STAND_BADGE_TEXT_W = STAND_BADGE_R * 2 - 1.1; // usable width inside the circle
-
-// Real booth ids are "LETTER-DIGITS", sometimes two joined by a space for a
-// shared/double stand ("B-070 C-071") -- the circle only has room for one
-// short code, so this takes the first token and drops its hall-letter
-// prefix and dash, leaving just the digits (e.g. "B-071" -> "071"), which
-// is what actually varies booth-to-booth within a hall and is short enough
-// to fit. Falls back to the untouched token if it doesn't match that
-// pattern at all (the vendored data has a handful of malformed ids --
-// fitLabelText's own measured truncation still keeps whatever's left from
-// ever overflowing the circle).
-function shortBoothCode(nr) {
-  const first = (nr || "").split(/\s+/)[0] || nr || "";
-  const stripped = first.replace(/^[A-Za-z]+-?/, "");
-  return stripped || first;
-}
+// Measured live against the real rendered font: "B-071" at font-size 2.0
+// is ~5.56 units wide, and the ellipsis glyph alone is ~2.1 units --
+// surprisingly wide, worth keeping in mind for any future resize (a
+// budget narrower than one truncated character + ellipsis has nowhere
+// left to shrink to and collapses every badge to the same text).
+const STAND_BADGE_TEXT_W = STAND_BADGE_W - 1.6;
 
 // Shrinks the label to however many characters actually fit the badge,
 // measured with the real rendered font via getComputedTextLength() --
 // robust to any input length/width instead of a guessed character budget,
 // so a malformed or unexpectedly long code just truncates safely instead
-// of overflowing the circle. Requires `el` to already be attached to a
+// of overflowing the badge. Requires `el` to already be attached to a
 // laid-out (visible) SVG -- getComputedTextLength() returns 0 on a
 // detached/hidden element, which is why this runs AFTER appendStandLabels
 // appends its <g>, not before.
@@ -634,8 +620,10 @@ function fitLabelText(el, text) {
 function appendStandLabels(svg, cx, cy, nr, revealZoom) {
   const g = svgEl("g", { class: "hallplan-label-group", "data-reveal": revealZoom });
 
-  const badge = svgEl("circle", {
-    cx, cy, r: STAND_BADGE_R,
+  const badge = svgEl("rect", {
+    x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
+    width: STAND_BADGE_W, height: STAND_BADGE_H,
+    rx: STAND_BADGE_RADIUS,
     class: "hallplan-stand-badge",
   });
   g.appendChild(badge);
@@ -647,7 +635,7 @@ function appendStandLabels(svg, cx, cy, nr, revealZoom) {
   });
   g.appendChild(boothLabel);
   svg.appendChild(g); // must be in the live DOM before fitLabelText can measure it
-  fitLabelText(boothLabel, shortBoothCode(nr));
+  fitLabelText(boothLabel, nr);
 }
 
 // Called on every zoom change (see applyHallTransform) plus once right

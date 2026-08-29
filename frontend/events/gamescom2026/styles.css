@@ -330,12 +330,14 @@ button { font-family: inherit; }
 }
 .hallplan-stand.named { fill: var(--primary-soft); stroke: rgba(79, 124, 255, 0.35); }
 .hallplan-stand:active { fill: rgba(79, 124, 255, 0.4); }
-/* Compact circular "coin" badge -- fixed size on every booth regardless of
-   that booth's own size (see appendStandLabels' own comment for the full
-   history: per-box scaled text, then a wide pill/tag, both replaced after
-   direct feedback -- this circle is the current shape, deliberately small
-   and "cute" rather than a stretched-out tag). Sits ON the booth's fill
-   (not blended into it), so it reads consistently whether the booth
+/* Compact "coin" badge -- fixed size on every booth regardless of that
+   booth's own size (see appendStandLabels' own comment for the full
+   history: per-box scaled text, then a wide stretched pill/tag, then a
+   circle with just the digits, all replaced after direct feedback -- the
+   circle dropped the hall-letter prefix to stay small, which made booths
+   hard to actually find against their own real signage, so this shows the
+   full id again in a rounded rect sized to fit it). Sits ON the booth's
+   fill (not blended into it), so it reads consistently whether the booth
    underneath is unnamed (plain dark) or named (blue-tinted). Gold ring,
    not the app's own brand blue -- this is a LOOT map, and gold is already
    this app's rank/treasure color everywhere else (leaderboard ranks, venue
