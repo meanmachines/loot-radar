@@ -613,10 +613,17 @@ function boundsOf(points) {
 // findable against its own real signage (direct feedback: dropping it
 // "hard to find it"). Sized from the real measured width of a 5-char id
 // like "B-071" at STAND_BADGE_FONT, not guessed.
-const STAND_BADGE_W = 7.6;
 const STAND_BADGE_H = 4.0;
 const STAND_BADGE_RADIUS = 1.3;
 const STAND_BADGE_FONT = 2.0;
+// Widened from an earlier 7.6 -- that fit a plain 5-char id ("B-071",
+// ~5.56 units measured live) but was too tight for the "first token +N"
+// compact form a shared/double stand now gets (see fitLabelText), which
+// runs ~7-8 units for a typical "B-070 +1". Still nowhere near the wide
+// stretched-pill design real feedback already rejected once (that was
+// ~13+ units, wide enough to fit a full compound id) -- this only buys
+// enough room for a short badge to stop clipping its own common case.
+const STAND_BADGE_W = 9.2;
 // Measured live against the real rendered font: "B-071" at font-size 2.0
 // is ~5.56 units wide, and the ellipsis glyph alone is ~2.1 units --
 // surprisingly wide, worth keeping in mind for any future resize (a
@@ -633,9 +640,20 @@ const STAND_BADGE_TEXT_W = STAND_BADGE_W - 1.6;
 // detached/hidden element, which is why this runs AFTER appendStandLabels
 // appends its <g>, not before.
 function fitLabelText(el, text) {
-  el.textContent = text;
+  // A shared/double stand's real id is two full booth numbers ("B-070
+  // C-071") -- character-truncating that whole string reads as a broken/
+  // cut-off label ("B-0...") rather than a deliberate compact one, and
+  // real data shows this isn't a rare edge case (confirmed live: ~15% of
+  // Hall 10's labeled stands are a compound id like this). Showing just
+  // the first token -- itself a real, complete, tappable booth number --
+  // plus a "+1" count reads as an intentional compact badge instead of a
+  // cut-off one; the full compound id still only appears once zoomed in
+  // past HALL_ZOOM_EXPAND_LABELS (see updateLabelVisibility).
+  const tokens = text.split(/\s+/);
+  const base = tokens.length > 1 ? `${tokens[0]} +${tokens.length - 1}` : text;
+  el.textContent = base;
   if (el.getComputedTextLength() <= STAND_BADGE_TEXT_W) return;
-  let shown = text;
+  let shown = base;
   while (shown.length > 1 && el.getComputedTextLength() > STAND_BADGE_TEXT_W) {
     shown = shown.slice(0, -1);
     el.textContent = shown + "…";
@@ -753,12 +771,12 @@ function onBoothTap(stand, shiftedPts, extent) {
   if (pendingAction === "placing-loot") {
     pendingPin = centroidNormalized(shiftedPts, extent);
     pendingAction = null;
-    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap a booth (or the floor)";
+    document.getElementById("hall-hint").textContent = "";
     openAddSheet({ booth: stand.nr, company });
   } else if (pendingAction === "placing-giveaway") {
     const pin = centroidNormalized(shiftedPts, extent);
     pendingAction = null;
-    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap a booth (or the floor)";
+    document.getElementById("hall-hint").textContent = "";
     openGiveawaySheet({
       company: giveawayPendingCompany || company,
       hallId: openHallId, boothNo: stand.nr, pinX: pin.x, pinY: pin.y,
@@ -892,12 +910,12 @@ async function openHall(hallId) {
   const levels = HALLPLAN_LEVELS[hallId];
   const switcher = document.getElementById("hall-level-switcher");
   if (levels) {
-    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap a booth (or the floor)";
+    document.getElementById("hall-hint").textContent = "";
     switcher.style.display = levels.length > 1 ? "flex" : "none";
     renderLevelSwitcherButtons(hallId, levels);
     await openHallLevel(hallId, levels[0].file);
   } else {
-    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap the floor to drop a pin";
+    document.getElementById("hall-hint").textContent = "";
     switcher.style.display = "none";
     currentHallLevel = null;
     document.getElementById("hall-plan-svg").innerHTML = "";
@@ -1199,16 +1217,12 @@ document.getElementById("hall-canvas-inner").addEventListener("click", (e) => {
   if (pendingAction === "placing-loot") {
     pendingPin = clickToNormalizedPosition(e);
     pendingAction = null;
-    document.getElementById("hall-hint").textContent = currentHallLevel
-      ? "Tap Add loot, then tap a booth (or the floor)"
-      : "Tap Add loot, then tap the floor to drop a pin";
+    document.getElementById("hall-hint").textContent = "";
     openAddSheet();
   } else if (pendingAction === "placing-giveaway") {
     const pos = clickToNormalizedPosition(e);
     pendingAction = null;
-    document.getElementById("hall-hint").textContent = currentHallLevel
-      ? "Tap Add loot, then tap a booth (or the floor)"
-      : "Tap Add loot, then tap the floor to drop a pin";
+    document.getElementById("hall-hint").textContent = "";
     openGiveawaySheet({ company: giveawayPendingCompany, hallId: openHallId, pinX: pos.x, pinY: pos.y });
     giveawayPendingCompany = "";
   } else if (tracking) {

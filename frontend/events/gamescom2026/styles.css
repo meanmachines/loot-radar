@@ -984,6 +984,14 @@ button { font-family: inherit; }
   z-index: 15;
   pointer-events: none;
 }
+/* Real bug found live: this was permanently visible with a standing
+   instruction ("Tap Add loot, then tap a booth...") on every hall open,
+   floating on top of the booth grid it's supposed to be a fleeting hint
+   over -- direct feedback screenshots showed it parked over real booth
+   badges. app.js now only ever puts text in here while pendingAction is
+   actually active (mid tap-to-place); this hides the element the rest of
+   the time instead of relying on an always-nonempty string. */
+.crosshair-hint:empty { display: none; }
 
 .accuracy-pill {
   position: absolute;
