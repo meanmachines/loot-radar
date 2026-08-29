@@ -857,33 +857,29 @@ function updateLabelVisibility() {
     // A named stand's card can skip the code entirely -- nothing below
     // applies to it, it just always shows the full name on its card.
     if (!text) return;
-    const rect = g.querySelector(".hallplan-stand-badge"); // absent for a bare (unnamed) code -- see appendCodeBadge
-    const cx = parseFloat(g.dataset.badgeCx);
-    const countDot = g.querySelector(".hallplan-stand-count");
-    const countLabel = g.querySelector(".hallplan-stand-count-label");
+    const rect = g.querySelector(".hallplan-stand-badge"); // present only for a named card's corner chip -- see appendCodeBadge
+
+    if (rect) {
+      // Real bug found live: this corner chip used to widen in place to
+      // show a full compound id ("A-062 B-063") once zoomed in far enough
+      // -- on a short/thin card that widened chip visibly overlapped the
+      // company name above it, both horizontally and vertically (the chip
+      // sits near the card's bottom-right corner, and a short card's
+      // vertically-centered name sits close enough to collide). The full
+      // compound id is already shown the moment the booth is tapped (see
+      // openBoothDetail/renderBoothSheetBody's own identity header), so
+      // there's no need to ever risk that collision here -- this chip now
+      // always just stays compact, "+N" dot and all, regardless of zoom.
+      return;
+    }
+
+    // Bare (unnamed) code -- free to grow on zoom since there's no card/
+    // name underneath it to collide with, just the plain light fill.
     if (expand) {
-      if (text.textContent !== nr) {
-        text.textContent = nr;
-        if (rect) {
-          const fullW = text.getComputedTextLength();
-          const neededW = Math.max(STAND_BADGE_W, fullW + 1.6);
-          rect.setAttribute("x", cx - neededW / 2);
-          rect.setAttribute("width", neededW);
-        }
-      }
-      // The full compound id is spelled out in one piece above, so the
-      // compact-only "+N" corner marker (if this stand has one) would just
-      // be redundant clutter next to it here.
-      if (countDot) { countDot.style.display = "none"; countLabel.style.display = "none"; }
+      if (text.textContent !== nr) text.textContent = nr;
+    } else if (text.textContent !== nr) {
+      return; // already collapsed, nothing to re-fit
     } else {
-      if (countDot) { countDot.style.display = ""; countLabel.style.display = ""; }
-      if (rect) {
-        if (rect.getAttribute("width") === String(STAND_BADGE_W)) return;
-        rect.setAttribute("x", cx - STAND_BADGE_W / 2);
-        rect.setAttribute("width", STAND_BADGE_W);
-      } else if (text.textContent === nr) {
-        return; // bare code, still showing the (short) full id -- nothing to re-collapse
-      }
       fitLabelText(text, nr);
     }
   });
@@ -1303,7 +1299,13 @@ HALL_WRAP.addEventListener("touchmove", (e) => {
   } else if (hallGesture.mode === "pan" && e.touches.length === 1) {
     const dx = e.touches[0].clientX - hallGesture.startX;
     const dy = e.touches[0].clientY - hallGesture.startY;
-    if (Math.hypot(dx, dy) > 6) hallGesture.moved = true;
+    // 6px read as "moved" on a real touchscreen far more often than a
+    // mouse test ever shows -- real finger jitter on a genuine tap
+    // regularly crosses that on real hardware, which then marks the
+    // gesture a "drag" and suppresses the click a booth tap depends on
+    // (real feedback: "clicking on booths doesn't even open their page").
+    // 12px is closer to a real OS's own touch-slop constant.
+    if (Math.hypot(dx, dy) > 12) hallGesture.moved = true;
     if (hallZoom.scale > 1.02 && hallGesture.moved) {
       e.preventDefault();
       hallZoom.x = hallGesture.originX + dx;
@@ -1318,7 +1320,7 @@ HALL_WRAP.addEventListener("touchend", (e) => {
   // A real drag (moved past the threshold) must not also register as a
   // tap-to-place-pin/tap-to-track on the click event that follows a touch
   // sequence -- suppressHallClick consumes exactly one click for that.
-  if (hallGesture && hallGesture.moved && hallGesture.mode === "pan") suppressHallClick = true;
+  if (hallGesture && hallGesture.moved && hallGesture.mode === "pan") markSuppressHallClick();
   // Clean (non-dragged) tap -- check it against the previous one for a
   // double-tap. Uses the touch's own start position (hallGesture.startX/Y)
   // rather than changedTouches, since a tap by definition never moved.
@@ -1328,7 +1330,7 @@ HALL_WRAP.addEventListener("touchend", (e) => {
     const dy = hallGesture.startY - lastHallTapY;
     if (now - lastHallTapAt <= HALL_DOUBLE_TAP_MS && Math.hypot(dx, dy) <= HALL_DOUBLE_TAP_PX) {
       zoomHallAt(hallGesture.startX, hallGesture.startY, hallZoom.scale * HALL_TAP_ZOOM_STEP);
-      suppressHallClick = true; // this tap's own click must not also open a booth
+      markSuppressHallClick(); // this tap's own click must not also open a booth
       lastHallTapAt = 0; // consumed -- a third quick tap starts a fresh pair, not a triple-trigger
     } else {
       lastHallTapAt = now;
@@ -1358,13 +1360,24 @@ window.addEventListener("mousemove", (e) => {
   }
 });
 window.addEventListener("mouseup", () => {
-  if (mouseDragState && mouseDragState.moved) suppressHallClick = true;
+  if (mouseDragState && mouseDragState.moved) markSuppressHallClick();
   mouseDragState = null;
 });
 
 document.getElementById("hall-zoom-reset").addEventListener("click", resetHallZoom);
 
 let suppressHallClick = false;
+// Self-clearing: a click is only ever expected to follow within a few tens
+// of ms of the touchend/mouseup that set this, so if some edge case (a
+// browser not synthesizing the click a gesture normally would) ever left
+// it stuck true, it would otherwise silently swallow every future tap on
+// the hall canvas forever -- real feedback: "clicking on booths doesn't
+// even open their page." One occasionally-missed click is a far smaller
+// failure than that.
+function markSuppressHallClick() {
+  suppressHallClick = true;
+  setTimeout(() => { suppressHallClick = false; }, 500);
+}
 
 document.getElementById("hall-canvas-inner").addEventListener("click", (e) => {
   if (suppressHallClick) { suppressHallClick = false; return; }
