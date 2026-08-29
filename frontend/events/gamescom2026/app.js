@@ -534,6 +534,7 @@ async function renderRealHallPlan(hallId, fileId) {
       stand,
       cx: (b.minX + b.maxX) / 2,
       cy: (b.minY + b.maxY) / 2,
+      boxW, boxH,
       named,
       area: boxW * boxH,
     });
@@ -548,11 +549,17 @@ async function renderRealHallPlan(hallId, fileId) {
   const placedRects = [];
   const placed = [];
   for (const c of labelCandidates) {
+    // A named stand's card is sized to (a capped chunk of) its own real
+    // footprint -- see appendStandLabels -- so collision reservation uses
+    // that real size too, capped the same way, instead of the small fixed
+    // badge footprint unnamed stands use.
+    const cardW = c.named ? Math.max(STAND_BADGE_W, Math.min(c.boxW - 1, STAND_CARD_MAX_W)) : STAND_BADGE_W;
+    const cardH = c.named ? Math.max(STAND_BADGE_H, Math.min(c.boxH - 1, STAND_CARD_MAX_H)) : STAND_BADGE_H;
     const rect = {
-      minX: c.cx - STAND_BADGE_W / 2 - LABEL_GAP,
-      maxX: c.cx + STAND_BADGE_W / 2 + LABEL_GAP,
-      minY: c.cy - STAND_BADGE_H / 2 - LABEL_GAP,
-      maxY: c.cy + STAND_BADGE_H / 2 + LABEL_GAP,
+      minX: c.cx - cardW / 2 - LABEL_GAP,
+      maxX: c.cx + cardW / 2 + LABEL_GAP,
+      minY: c.cy - cardH / 2 - LABEL_GAP,
+      maxY: c.cy + cardH / 2 + LABEL_GAP,
     };
     const collides = placedRects.some(
       (r) => rect.minX < r.maxX && rect.maxX > r.minX && rect.minY < r.maxY && rect.maxY > r.minY
@@ -581,7 +588,7 @@ async function renderRealHallPlan(hallId, fileId) {
       const frac = placed.length > 1 ? i / (placed.length - 1) : 0;
       reveal = frac < 0.22 ? 1 : frac < 0.55 ? 2 : 3.5;
     }
-    appendStandLabels(svg, c.cx, c.cy, c.stand.nr, reveal);
+    appendStandLabels(svg, c, reveal);
   });
   updateLabelVisibility();
 }
@@ -616,6 +623,20 @@ function boundsOf(points) {
 // findable against its own real signage (direct feedback: dropping it
 // "hard to find it"). Sized from the real measured width of a 5-char id
 // like "B-071" at STAND_BADGE_FONT, not guessed.
+// A named stand's "signage card" -- direct feedback comparing this map
+// against the real official Gamescom floor plan: that reference shows each
+// exhibitor's own name filling its booth's box, not just an abstract code.
+// Capped well below any real booth's actual size (some run 20+ units per
+// side) so one big exhibitor doesn't dominate the whole hall view; floored
+// at the small code-badge's own size so a card is never SMALLER than the
+// plain badge unnamed stands get.
+const STAND_CARD_MAX_W = 24;
+const STAND_CARD_MAX_H = 13;
+const STAND_CARD_PAD_X = 1.2;
+const STAND_CARD_MAX_FONT = 2.6;
+const STAND_CARD_MIN_FONT = 1.25;
+const STAND_CARD_RADIUS = 0.9;
+
 const STAND_BADGE_H = 4.0;
 const STAND_BADGE_RADIUS = 1.3;
 const STAND_BADGE_FONT = 2.0;
@@ -664,13 +685,26 @@ function fitLabelText(el, text) {
   }
 }
 
-// cx/cy: badge center, already resolved by the caller's collision pass
-// against every other candidate badge in the hall -- this function just
-// draws at the given point, it no longer decides whether to.
-// revealZoom: the hall-canvas zoom scale (see HALL_ZOOM_MIN/MAX) at which
-// this badge starts showing -- 1 means "visible immediately," higher means
-// "hidden until the user pinch-zooms in that far." Badge+text share one
-// <g> so updateLabelVisibility only has one element per booth to toggle.
+// Shrinks a name card's font to fit its own card width (down to a floor),
+// same live-measurement approach as fitLabelText -- below the floor it
+// truncates with an ellipsis rather than overflow the card, but that floor
+// is only ever hit by a genuinely long name in a genuinely small card.
+function fitCardName(el, name, maxW) {
+  el.textContent = name;
+  let font = STAND_CARD_MAX_FONT;
+  el.setAttribute("font-size", font);
+  while (el.getComputedTextLength() > maxW && font > STAND_CARD_MIN_FONT) {
+    font = Math.round((font - 0.12) * 100) / 100;
+    el.setAttribute("font-size", font);
+  }
+  if (el.getComputedTextLength() <= maxW) return;
+  let shown = name;
+  while (shown.length > 1 && el.getComputedTextLength() > maxW) {
+    shown = shown.slice(0, -1);
+    el.textContent = shown + "…";
+  }
+}
+
 // Size/position for the small "+N" corner marker a compact (non-expanded)
 // shared/double stand's badge gets instead of ever widening for its
 // second code -- sits on the badge's own top-right corner like a
@@ -678,12 +712,12 @@ function fitLabelText(el, text) {
 const STAND_COUNT_R = 1.55;
 const STAND_COUNT_FONT = 1.55;
 
-function appendStandLabels(svg, cx, cy, nr, revealZoom) {
-  const g = svgEl("g", {
-    class: "hallplan-label-group", "data-reveal": revealZoom,
-    "data-cx": cx, "data-cy": cy, "data-nr": nr,
-  });
-
+// Appends the small booth-code badge (+ its own "+N" corner count marker,
+// if this is a shared/double stand) into an already-created label group,
+// centered at (cx, cy) -- for a named stand this is a corner of its own
+// name card (see appendStandLabels), for an unnamed one it's just the
+// stand's own centroid, same spot this badge always used to live at alone.
+function appendCodeBadge(g, cx, cy, nr) {
   const badge = svgEl("rect", {
     x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
     width: STAND_BADGE_W, height: STAND_BADGE_H,
@@ -691,6 +725,8 @@ function appendStandLabels(svg, cx, cy, nr, revealZoom) {
     class: "hallplan-stand-badge",
   });
   g.appendChild(badge);
+  g.dataset.badgeCx = cx;
+  g.dataset.badgeCy = cy;
 
   const boothLabel = svgEl("text", {
     x: cx, y: cy,
@@ -698,7 +734,6 @@ function appendStandLabels(svg, cx, cy, nr, revealZoom) {
     "font-size": STAND_BADGE_FONT,
   });
   g.appendChild(boothLabel);
-  svg.appendChild(g); // must be in the live DOM before fitLabelText can measure it
   fitLabelText(boothLabel, nr);
 
   const extraCount = nr.split(/\s+/).length - 1;
@@ -717,6 +752,63 @@ function appendStandLabels(svg, cx, cy, nr, revealZoom) {
     countLabel.textContent = `+${extraCount}`;
     g.appendChild(countDot);
     g.appendChild(countLabel);
+  }
+}
+
+// A named stand's card only carries the small corner code badge too when
+// it's big enough for that corner not to swallow most of the card -- a
+// stand right at the labeling cutoff shouldn't get a badge stamped over
+// half its own name.
+const STAND_CARD_BADGE_MIN_W = STAND_BADGE_W * 1.35;
+const STAND_CARD_BADGE_MIN_H = STAND_BADGE_H * 1.6;
+
+// c: one placed label candidate from renderRealHallPlan's own collision
+// pass -- {stand, cx, cy, boxW, boxH, named}. revealZoom: the hall-canvas
+// zoom scale (see HALL_ZOOM_MIN/MAX) at which this label starts showing --
+// 1 means "visible immediately," higher means "hidden until the user
+// pinch-zooms in that far."
+//
+// A named stand gets a light "signage card" sized to (a capped chunk of)
+// its own real footprint with the exhibitor's name front and center --
+// direct feedback comparing this against the real official floor plan,
+// which shows each exhibitor's own name/logo filling its box rather than
+// an abstract code. The booth code doesn't disappear (still needed to
+// match real venue signage, per earlier feedback) -- it moves to a small
+// badge in the card's own corner instead of competing with the name for
+// the same spot. An unnamed stand has no name to show, so it keeps exactly
+// the old badge-only treatment.
+function appendStandLabels(svg, c, revealZoom) {
+  const { cx, cy, stand, named, boxW, boxH } = c;
+  const nr = stand.nr;
+  const g = svgEl("g", {
+    class: "hallplan-label-group", "data-reveal": revealZoom,
+    "data-cx": cx, "data-cy": cy, "data-nr": nr,
+  });
+
+  if (named) {
+    const w = Math.max(STAND_BADGE_W, Math.min(boxW - 1, STAND_CARD_MAX_W));
+    const h = Math.max(STAND_BADGE_H, Math.min(boxH - 1, STAND_CARD_MAX_H));
+    const card = svgEl("rect", {
+      x: cx - w / 2, y: cy - h / 2, width: w, height: h,
+      rx: STAND_CARD_RADIUS,
+      class: "hallplan-stand-card",
+    });
+    g.appendChild(card);
+    const nameLabel = svgEl("text", {
+      x: cx, y: cy,
+      class: "hallplan-stand-name",
+      "font-size": STAND_CARD_MAX_FONT,
+    });
+    g.appendChild(nameLabel);
+    svg.appendChild(g); // must be in the live DOM before fitCardName/fitLabelText can measure
+    fitCardName(nameLabel, stand.names[0], w - STAND_CARD_PAD_X * 2);
+
+    if (w >= STAND_CARD_BADGE_MIN_W && h >= STAND_CARD_BADGE_MIN_H) {
+      appendCodeBadge(g, cx + w / 2 - STAND_BADGE_W / 2 - 0.3, cy + h / 2 - STAND_BADGE_H / 2 - 0.3, nr);
+    }
+  } else {
+    svg.appendChild(g);
+    appendCodeBadge(g, cx, cy, nr);
   }
 }
 
@@ -744,8 +836,12 @@ function updateLabelVisibility() {
     g.style.display = hallZoom.scale >= reveal - 0.001 ? "" : "none";
 
     const nr = g.dataset.nr;
-    const cx = parseFloat(g.dataset.cx);
     const rect = g.querySelector(".hallplan-stand-badge");
+    // A named stand's card can skip the corner code badge entirely when
+    // the card's too small for one (see appendStandLabels) -- nothing
+    // below applies to it, it just always shows the full name on its card.
+    if (!rect) return;
+    const cx = parseFloat(g.dataset.badgeCx);
     const text = g.querySelector(".hallplan-stand-label");
     const countDot = g.querySelector(".hallplan-stand-count");
     const countLabel = g.querySelector(".hallplan-stand-count-label");
@@ -891,7 +987,6 @@ function renderBoothSheetBody() {
       <div class="booth-identity-sub">Booth ${escapeHtml(stand.nr)}${hall ? ` &middot; Hall ${hall.number}` : ""}</div>
     </div>
   </div>`;
-  html += `<div class="booth-official-badge">${icon("check")} From the official Gamescom floor plan</div>`;
   html += renderBoothGiveawayList(hallId, stand.nr);
   if (!matches.length) {
     html += `<div class="empty-state">${icon("chest")}<span>No loot reported at this booth yet -- be the first.</span></div>`;

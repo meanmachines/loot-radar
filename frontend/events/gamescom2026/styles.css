@@ -414,6 +414,27 @@ button { font-family: inherit; }
 }
 .hallplan-stand.named { fill: var(--primary-soft); stroke: rgba(79, 124, 255, 0.35); }
 .hallplan-stand:active { fill: rgba(79, 124, 255, 0.4); }
+/* Named stand's "signage card" -- direct feedback comparing this map
+   against the real official Gamescom floor plan, which shows each
+   exhibitor's own name/logo filling its booth's box on a light card, not
+   just an abstract code sitting in a dark pill. Light against the map's
+   otherwise-dark canvas so a real exhibitor's booth reads at a glance,
+   the same way it does on the real venue signage. */
+.hallplan-stand-card {
+  fill: #f3f4f7;
+  stroke: rgba(10, 11, 13, 0.28);
+  stroke-width: 0.28;
+  pointer-events: none;
+  filter: drop-shadow(0 0.4px 1px rgba(0, 0, 0, 0.45));
+}
+.hallplan-stand-name {
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  font-family: var(--font);
+  font-weight: 800;
+  fill: #14161a;
+}
 /* Compact "coin" badge -- fixed size on every booth regardless of that
    booth's own size (see appendStandLabels' own comment for the full
    history: per-box scaled text, then a wide stretched pill/tag, then a
@@ -803,12 +824,6 @@ button { font-family: inherit; }
 .booth-loot-info { flex: 1; min-width: 0; }
 .booth-loot-title { font-weight: 700; font-size: 0.85rem; }
 .booth-loot-sub { font-size: 0.72rem; color: var(--text-muted); }
-.booth-official-badge {
-  display: inline-flex; align-items: center; gap: 0.3rem;
-  font-size: 0.68rem; color: var(--text-muted);
-  background: var(--glass); border: 1px solid var(--border);
-  padding: 0.2rem 0.55rem; border-radius: 999px; margin-bottom: 0.9rem;
-}
 /* Big "whose booth is this" identity card at the top of the booth sheet --
    see companyAvatarColor's own note on why an initials avatar, not a real
    logo image. */
