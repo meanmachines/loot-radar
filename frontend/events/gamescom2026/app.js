@@ -1021,6 +1021,13 @@ function clickToNormalizedPosition(e) {
 
 const HALL_ZOOM_MIN = 1;
 const HALL_ZOOM_MAX = 5;
+// A plain tap on empty floor (not a booth, not mid pinch/drag) steps the
+// zoom in toward the tapped point -- real feedback: the hall opens fully
+// zoomed out by design (resetHallZoom on openHall) so dense halls read as
+// an overview first, but the only way to zoom in was a two-finger pinch,
+// awkward one-handed on a phone. Repeated taps keep zooming in (capped at
+// HALL_ZOOM_MAX), same as a map app's double-tap-to-zoom.
+const HALL_TAP_ZOOM_STEP = 1.8;
 let hallZoom = { scale: 1, x: 0, y: 0 };
 let hallGesture = null; // active pointer/touch gesture state, or null
 
@@ -1171,6 +1178,8 @@ document.getElementById("hall-canvas-inner").addEventListener("click", (e) => {
   } else if (tracking) {
     const pos = clickToNormalizedPosition(e);
     setMePosition(pos.x, pos.y);
+  } else {
+    zoomHallAt(e.clientX, e.clientY, hallZoom.scale * HALL_TAP_ZOOM_STEP);
   }
 });
 
@@ -1803,19 +1812,75 @@ document.querySelectorAll(".nav-btn[data-view]").forEach((b) => b.addEventListen
 // buildCompanyIndex): the official floor plan plus anything already
 // reported through the app, so it can find a booth even if nobody's
 // posted loot there yet.
+// Plain Levenshtein edit distance -- used below to catch names typed
+// slightly differently than the database's own spelling (real feedback:
+// "some names are not exactly as they are listed in database"), e.g. a
+// missing/extra word, a typo, or a different transliteration.
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j - 1], prev[j], cur[j - 1]);
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+// Scores how close `needle` is to any single word of a company name --
+// compares against each word (not the whole name) so a short query isn't
+// penalized against a long multi-word name, and clips the word to the
+// query's own length first so "lexr" vs "lexar" scores on the relevant
+// prefix rather than the whole rest of the word. Lower is better; 0 means
+// an exact word match (already caught by the substring check above this
+// never runs for).
+function fuzzyWordScore(needle, words) {
+  let best = Infinity;
+  for (const w of words) {
+    if (!w) continue;
+    const clipped = w.length > needle.length ? w.slice(0, needle.length) : w;
+    const d = levenshtein(needle, clipped);
+    const ratio = d / Math.max(needle.length, 2);
+    if (ratio < best) best = ratio;
+  }
+  return best;
+}
+
 function searchBoothsAndCompanies(query) {
   if (!companyIndex || !query) return [];
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
   const seen = new Set();
-  const results = [];
+  const exact = [];
+  const fuzzy = [];
   for (const v of companyIndex.values()) {
-    if (!v.name.toLowerCase().includes(needle) && !v.boothNo.toLowerCase().includes(needle)) continue;
     const key = `${v.hallId}|${v.boothNo}`;
     if (seen.has(key)) continue;
-    seen.add(key);
-    results.push(v);
+    const nameLower = v.name.toLowerCase();
+    if (nameLower.includes(needle) || v.boothNo.toLowerCase().includes(needle)) {
+      seen.add(key);
+      exact.push(v);
+      continue;
+    }
+    // Only bother fuzzy-matching once there's enough of a query to be
+    // meaningful -- a 1-2 char query fuzzy-matches almost everything.
+    if (needle.length >= 3) {
+      const score = fuzzyWordScore(needle, nameLower.split(/\s+/).filter(Boolean));
+      if (score <= 0.4) fuzzy.push({ v, score, key });
+    }
+  }
+  fuzzy.sort((a, b) => a.score - b.score);
+  const results = exact.slice(0, 8);
+  for (const f of fuzzy) {
     if (results.length >= 8) break;
+    if (seen.has(f.key)) continue;
+    seen.add(f.key);
+    results.push({ ...f.v, approx: true });
   }
   return results;
 }
@@ -1861,11 +1926,12 @@ function wireSearchBar({ inputId, clearId, resultsId, containerId, onQuery }) {
     if (!results.length) { hide(); return; }
     resultsEl.innerHTML = results.map((r, i) => {
       const hall = hallById(r.hallId);
+      const sub = `Hall ${hall ? hall.number : r.hallId} &middot; Booth ${escapeHtml(r.boothNo)}`;
       return `<div class="search-result-row" data-i="${i}">
         <div class="search-result-icon">${icon("pin")}</div>
         <div class="search-result-info">
           <div class="search-result-title">${escapeHtml(r.name)}</div>
-          <div class="search-result-sub">Hall ${hall ? hall.number : r.hallId} &middot; Booth ${escapeHtml(r.boothNo)}</div>
+          <div class="search-result-sub">${r.approx ? `Similar match &middot; ${sub}` : sub}</div>
         </div>
       </div>`;
     }).join("");
