@@ -64,6 +64,24 @@ async function apiCreateLoot(fields, photoBlob) {
   return res.json();
 }
 
+async function apiCreateGiveaway(fields) {
+  // URLSearchParams stringifies undefined as the literal text "undefined"
+  // -- optional fields (notes, submitted_by) are dropped entirely instead
+  // of passed through, so an unset optional field reaches the backend as
+  // genuinely absent rather than the 9-character string "undefined".
+  const present = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+  const qs = new URLSearchParams({ ...present, event_id: EVENT_ID }).toString();
+  const res = await fetch(`${API_BASE}/giveaways?${qs}`, {
+    method: "POST",
+    headers: { "X-Device-Id": deviceId() },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail || `create failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // Toasts
 // ---------------------------------------------------------------------------
@@ -606,6 +624,15 @@ function onBoothTap(stand, shiftedPts, extent) {
     pendingAction = null;
     document.getElementById("hall-hint").textContent = "Tap Add loot, then tap a booth (or the floor)";
     openAddSheet({ booth: stand.nr, company });
+  } else if (pendingAction === "placing-giveaway") {
+    const pin = centroidNormalized(shiftedPts, extent);
+    pendingAction = null;
+    document.getElementById("hall-hint").textContent = "Tap Add loot, then tap a booth (or the floor)";
+    openGiveawaySheet({
+      company: giveawayPendingCompany || company,
+      hallId: openHallId, boothNo: stand.nr, pinX: pin.x, pinY: pin.y,
+    });
+    giveawayPendingCompany = "";
   } else if (!tracking) {
     openBoothDetail(stand, shiftedPts, extent);
   }
@@ -633,9 +660,22 @@ function openBoothDetail(stand, shiftedPts, extent) {
   const hall = hallById(openHallId);
   document.getElementById("booth-sheet-sub").textContent = `Booth ${stand.nr}${hall ? ` -- Hall ${hall.number}` : ""}`;
 
-  const matches = lootForHall(openHallId).filter((l) => boothNumbersMatch(l.booth_no, stand.nr));
+  renderBoothSheetBody();
+  document.getElementById("booth-sheet").classList.add("open");
+}
+
+// Re-renders the booth sheet's own body from the ALREADY-open
+// boothDetailContext -- used after scheduling a giveaway at this booth, so
+// the new entry shows up immediately without needing shiftedPts/extent
+// again (openBoothDetail needs those only to recompute the pin, which
+// hasn't changed).
+function renderBoothSheetBody() {
+  if (!boothDetailContext) return;
+  const { stand, hallId } = boothDetailContext;
+  const matches = lootForHall(hallId).filter((l) => boothNumbersMatch(l.booth_no, stand.nr));
   const body = document.getElementById("booth-sheet-body");
   let html = `<div class="booth-official-badge">${icon("check")} From the official Gamescom floor plan</div>`;
+  html += renderBoothGiveawayList(hallId, stand.nr);
   if (!matches.length) {
     html += `<div class="empty-state">${icon("chest")}<span>No loot reported at this booth yet -- be the first.</span></div>`;
   } else {
@@ -657,8 +697,6 @@ function openBoothDetail(stand, shiftedPts, extent) {
   body.querySelectorAll(".booth-loot-card").forEach((card) => {
     card.addEventListener("click", () => openLoot(Number(card.dataset.id)));
   });
-
-  document.getElementById("booth-sheet").classList.add("open");
 }
 
 function closeBoothDetail() {
@@ -960,6 +998,14 @@ document.getElementById("hall-canvas-inner").addEventListener("click", (e) => {
       ? "Tap Add loot, then tap a booth (or the floor)"
       : "Tap Add loot, then tap the floor to drop a pin";
     openAddSheet();
+  } else if (pendingAction === "placing-giveaway") {
+    const pos = clickToNormalizedPosition(e);
+    pendingAction = null;
+    document.getElementById("hall-hint").textContent = currentHallLevel
+      ? "Tap Add loot, then tap a booth (or the floor)"
+      : "Tap Add loot, then tap the floor to drop a pin";
+    openGiveawaySheet({ company: giveawayPendingCompany, hallId: openHallId, pinX: pos.x, pinY: pos.y });
+    giveawayPendingCompany = "";
   } else if (tracking) {
     const pos = clickToNormalizedPosition(e);
     setMePosition(pos.x, pos.y);
@@ -1164,6 +1210,237 @@ document.getElementById("add-submit").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Giveaways -- scheduled booth programming (lucky draws, tournament finals,
+// timed prize drops), separate from a loot report: forward-looking ("this
+// will happen at 17:00") rather than "someone found this here already".
+// ---------------------------------------------------------------------------
+
+let giveawaysById = new Map();
+// lowercased company name -> {hallId, boothNo, name, pinX, pinY} -- built
+// once from the official floor plan + extra-companies.js + everything
+// already reported through the app (see indexCompany calls below), so the
+// giveaway form can resolve a typed company name to a real booth without
+// requiring a map tap every time.
+let companyIndex = null;
+let giveawayPendingCompany = "";
+let giveawayContext = null; // {hallId, boothNo, pinX, pinY} while the giveaway sheet is open
+
+function indexCompany(name, hallId, boothNo, pinX, pinY) {
+  if (!companyIndex || !name) return;
+  const key = name.trim().toLowerCase();
+  if (!key || !hallId || !boothNo) return;
+  companyIndex.set(key, { hallId, boothNo, name: name.trim(), pinX, pinY });
+}
+
+async function buildCompanyIndex() {
+  companyIndex = new Map();
+  let outline;
+  try {
+    outline = await loadOutline();
+  } catch (e) {
+    return companyIndex; // real-plan data unavailable -- index stays empty, extras/live data below still work
+  }
+  const fileToHall = {};
+  for (const [hallId, levels] of Object.entries(HALLPLAN_LEVELS)) {
+    for (const lvl of levels) fileToHall[lvl.file] = hallId;
+  }
+  await Promise.all(Object.keys(fileToHall).map(async (fileId) => {
+    let plan;
+    try { plan = await loadHallPlanFile(fileId); } catch (e) { return; }
+    const hallId = fileToHall[fileId];
+    const margin = marginFor(outline, fileId);
+    const extent = planExtent(plan, margin);
+    for (const stand of plan.stands || []) {
+      if (!stand.names || !stand.names.length) continue;
+      const shifted = stand.poly.map(([x, y]) => [x + margin.w, y + margin.n]);
+      const pin = centroidNormalized(shifted, extent);
+      for (const name of stand.names) indexCompany(name, hallId, stand.nr, pin.x, pin.y);
+    }
+  }));
+  for (const [name, loc] of Object.entries(EXTRA_COMPANIES)) {
+    indexCompany(name, loc.hallId, loc.boothNo, loc.pinX, loc.pinY);
+  }
+  // Live crowd data backfill -- a company reported via loot or a giveaway
+  // becomes searchable too, even when the official floor plan never named
+  // its booth at all (real gap found live: some exhibitors, e.g. smaller
+  // AI/indie booths, have zero entry in the vendored data).
+  for (const entry of lootById.values()) indexCompany(entry.company_name, entry.hall_id, entry.booth_no, entry.pin_x, entry.pin_y);
+  for (const entry of giveawaysById.values()) indexCompany(entry.company_name, entry.hall_id, entry.booth_no, entry.pin_x, entry.pin_y);
+  return companyIndex;
+}
+
+function findCompany(query) {
+  if (!companyIndex || !query) return null;
+  const key = query.trim().toLowerCase();
+  if (!key) return null;
+  if (companyIndex.has(key)) return companyIndex.get(key);
+  for (const [k, v] of companyIndex) if (k.includes(key)) return v;
+  return null;
+}
+
+function populateGiveawayCompanyList() {
+  const dl = document.getElementById("giveaway-company-list");
+  if (!companyIndex) { dl.innerHTML = ""; return; }
+  const seen = new Set();
+  let html = "";
+  for (const v of companyIndex.values()) {
+    if (seen.has(v.name)) continue;
+    seen.add(v.name);
+    html += `<option value="${escapeHtml(v.name)}"></option>`;
+  }
+  dl.innerHTML = html;
+}
+
+function giveawaysForBooth(hallId, boothNo) {
+  return [...giveawaysById.values()]
+    .filter((g) => g.hall_id === hallId && g.status === "active" && boothNumbersMatch(g.booth_no, boothNo))
+    .sort((a, b) => a.starts_at - b.starts_at);
+}
+
+// "Today 17:00" / "Tomorrow 10:30" / "Fri 17:00" for anything further out
+// -- a live event's own schedule doesn't need a full calendar date, just
+// enough to tell "later today" from "a different day" at a glance.
+function formatGiveawayTime(epochSeconds) {
+  const d = new Date(epochSeconds * 1000);
+  const now = new Date();
+  const startOfDay = (dt) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(d) - startOfDay(now)) / 86400000);
+  const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (dayDiff === 0) return `Today ${hm}`;
+  if (dayDiff === 1) return `Tomorrow ${hm}`;
+  return `${d.toLocaleDateString([], { weekday: "short" })} ${hm}`;
+}
+
+function giveawayStatusLabel(epochSeconds) {
+  const diffMin = (epochSeconds * 1000 - Date.now()) / 60000;
+  if (diffMin <= 0 && diffMin > -60) return "LIVE NOW";
+  if (diffMin > 0 && diffMin <= 60) return `in ${Math.round(diffMin)}m`;
+  return null;
+}
+
+function renderBoothGiveawayList(hallId, boothNo) {
+  const entries = giveawaysForBooth(hallId, boothNo);
+  if (!entries.length) return "";
+  return `<div class="booth-giveaway-section">
+    <div class="booth-giveaway-heading">${icon("trophy")} Scheduled giveaways</div>
+    ${entries.map((g) => {
+      const status = giveawayStatusLabel(g.starts_at);
+      return `<div class="giveaway-card">
+        <div class="giveaway-time${status ? " live" : ""}">${status || formatGiveawayTime(g.starts_at)}</div>
+        <div class="giveaway-info">
+          <div class="giveaway-prize">${escapeHtml(g.prize)}</div>
+          ${g.notes ? `<div class="giveaway-notes">${escapeHtml(g.notes)}</div>` : ""}
+        </div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function updateGiveawayHallDisplay() {
+  const el = document.getElementById("giveaway-form-hall");
+  if (!giveawayContext) { el.value = ""; return; }
+  const hall = hallById(giveawayContext.hallId);
+  el.value = hall ? `Hall ${hall.number} -- ${hall.category}` : giveawayContext.hallId;
+}
+
+// giveawayContext only ever holds {hallId, pinX, pinY} -- the booth NUMBER
+// is always read live from its own text input at submit time, not stored
+// here, because a floor tap (no specific booth polygon under the tap, e.g.
+// a schematic hall or open floor space) still needs to produce a usable
+// pin/hall pair even with no booth name to prefill; the user just types it.
+function openGiveawaySheet(prefill) {
+  populateGiveawayCompanyList();
+  document.getElementById("giveaway-form-company").value = (prefill && prefill.company) || "";
+  document.getElementById("giveaway-form-booth").value = (prefill && prefill.boothNo) || "";
+  document.getElementById("giveaway-form-prize").value = "";
+  document.getElementById("giveaway-form-notes").value = "";
+  document.getElementById("giveaway-form-date").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("giveaway-form-time").value = "";
+  giveawayContext = (prefill && prefill.hallId) ? { hallId: prefill.hallId, pinX: prefill.pinX, pinY: prefill.pinY } : null;
+  document.getElementById("giveaway-form-hint").textContent = giveawayContext
+    ? "Hall/booth pre-filled -- edit if it's wrong."
+    : "Type a company already on the map to auto-fill its booth, or tap Pick on map.";
+  updateGiveawayHallDisplay();
+  document.getElementById("giveaway-sheet").classList.add("open");
+}
+
+function closeGiveawaySheet() {
+  document.getElementById("giveaway-sheet").classList.remove("open");
+  giveawayContext = null;
+}
+document.getElementById("giveaway-sheet-back").addEventListener("click", closeGiveawaySheet);
+document.getElementById("giveaway-cancel").addEventListener("click", closeGiveawaySheet);
+
+document.getElementById("giveaway-form-company").addEventListener("input", (e) => {
+  const match = findCompany(e.target.value);
+  if (!match) return; // don't clear a location the user already picked (map tap or an earlier match) just because they kept typing
+  giveawayContext = { hallId: match.hallId, pinX: match.pinX, pinY: match.pinY };
+  document.getElementById("giveaway-form-booth").value = match.boothNo;
+  updateGiveawayHallDisplay();
+});
+
+document.getElementById("giveaway-pick-on-map").addEventListener("click", () => {
+  giveawayPendingCompany = document.getElementById("giveaway-form-company").value.trim();
+  closeGiveawaySheet();
+  closeBoothDetail();
+  if (!openHallId) { toast("Open a hall first, then tap a booth for this giveaway"); switchView("map"); return; }
+  pendingAction = "placing-giveaway";
+  document.getElementById("hall-hint").textContent = "Tap the booth this giveaway is at";
+});
+
+document.getElementById("giveaway-submit").addEventListener("click", async () => {
+  const company = document.getElementById("giveaway-form-company").value.trim();
+  const boothNo = document.getElementById("giveaway-form-booth").value.trim();
+  const prize = document.getElementById("giveaway-form-prize").value.trim();
+  const dateVal = document.getElementById("giveaway-form-date").value;
+  const timeVal = document.getElementById("giveaway-form-time").value;
+  const notes = document.getElementById("giveaway-form-notes").value.trim();
+  if (!giveawayContext) { toast("Pick this giveaway's booth first", true); return; }
+  if (!company || !boothNo || !prize || !dateVal || !timeVal) { toast("Company, booth, prize, date and time are required", true); return; }
+  const startsAt = new Date(`${dateVal}T${timeVal}`).getTime() / 1000;
+  if (!Number.isFinite(startsAt)) { toast("Invalid date/time", true); return; }
+
+  const btn = document.getElementById("giveaway-submit");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Scheduling';
+  try {
+    const entry = await apiCreateGiveaway({
+      hall_id: giveawayContext.hallId,
+      booth_no: boothNo,
+      company_name: company,
+      prize,
+      starts_at: startsAt,
+      pin_x: giveawayContext.pinX,
+      pin_y: giveawayContext.pinY,
+      notes: notes || undefined,
+      submitted_by: localStorage.getItem("lr_display_name") || undefined,
+    });
+    giveawaysById.set(entry.id, entry);
+    indexCompany(entry.company_name, entry.hall_id, entry.booth_no, entry.pin_x, entry.pin_y);
+    closeGiveawaySheet();
+    if (leaderboardTab === "giveaways") renderLeaderboardList();
+    if (boothDetailContext && boothDetailContext.hallId === entry.hall_id) renderBoothSheetBody();
+    toast(`Giveaway scheduled: ${entry.company_name}`);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "Schedule giveaway";
+  }
+});
+
+document.getElementById("booth-giveaway-btn").addEventListener("click", () => {
+  if (!boothDetailContext) return;
+  const { stand, pin, hallId } = boothDetailContext;
+  const company = stand.names && stand.names[0] ? stand.names[0] : "";
+  // Deliberately does NOT close the booth sheet -- it stays open behind the
+  // giveaway sheet (same z-index/DOM-order stacking add-sheet already uses
+  // over hall-sheet), so closing or submitting the giveaway sheet reveals
+  // it again, and a successful submit can refresh its body in place.
+  openGiveawaySheet({ company, hallId, boothNo: stand.nr, pinX: pin.x, pinY: pin.y });
+});
+
+// ---------------------------------------------------------------------------
 // Leaderboard
 // ---------------------------------------------------------------------------
 
@@ -1190,6 +1467,37 @@ async function loadLeaderboard() {
 
 function renderLeaderboardList() {
   const list = document.getElementById("leaderboard-list");
+
+  if (leaderboardTab === "giveaways") {
+    const rows = [...giveawaysById.values()].filter((g) => g.status === "active").sort((a, b) => a.starts_at - b.starts_at);
+    const addRow = `<button class="btn btn-primary" id="giveaway-tab-add" style="width:100%;margin-bottom:0.75rem">+ Schedule a giveaway</button>`;
+    if (!rows.length) {
+      list.innerHTML = addRow + `<div class="empty-state">${icon("trophy")}<span>No giveaways scheduled yet -- add the first one</span></div>`;
+    } else {
+      list.innerHTML = addRow + rows.map((g) => {
+        const hall = hallById(g.hall_id);
+        const status = giveawayStatusLabel(g.starts_at);
+        return `<div class="lb-card" data-id="${g.id}">
+          <div class="lb-rank${status === "LIVE NOW" ? " r1" : ""}">${icon("trophy")}</div>
+          <div class="lb-info">
+            <div class="lb-title">${escapeHtml(g.company_name)}</div>
+            <div class="lb-sub">${escapeHtml(g.prize)} &middot; Hall ${hall ? hall.number : "?"} &middot; Booth ${escapeHtml(g.booth_no)}</div>
+          </div>
+          <div class="lb-score">${status || formatGiveawayTime(g.starts_at)}</div>
+        </div>`;
+      }).join("");
+    }
+    const addBtn = document.getElementById("giveaway-tab-add");
+    if (addBtn) addBtn.addEventListener("click", () => openGiveawaySheet());
+    list.querySelectorAll(".lb-card[data-id]").forEach((card) => {
+      card.addEventListener("click", () => {
+        const g = giveawaysById.get(Number(card.dataset.id));
+        if (g) openHall(g.hall_id);
+      });
+    });
+    return;
+  }
+
   if (!leaderboardCache) { list.innerHTML = ""; return; }
   const rows = leaderboardCache[leaderboardTab] || [];
   if (!rows.length) {
@@ -1330,6 +1638,15 @@ function connectEvents() {
     // the top_loot ranking -- refresh so hotspot/pin colors stay honest,
     // not just this one entry's own data.
     loadLeaderboard();
+  });
+  es.addEventListener("giveaway.created", (e) => {
+    const entry = JSON.parse(e.data);
+    if (entry.event_id && entry.event_id !== EVENT_ID) return;
+    giveawaysById.set(entry.id, entry);
+    indexCompany(entry.company_name, entry.hall_id, entry.booth_no, entry.pin_x, entry.pin_y);
+    if (leaderboardTab === "giveaways") renderLeaderboardList();
+    if (boothDetailContext && boothDetailContext.hallId === entry.hall_id) renderBoothSheetBody();
+    toast(`Giveaway scheduled: ${entry.company_name}`);
   });
   es.onerror = () => {
     // EventSource auto-reconnects on its own; nothing to do here beyond
@@ -1605,10 +1922,12 @@ function positionMeDot() {
 
 async function refreshAll() {
   try {
-    const [halls, list] = await Promise.all([Promise.resolve(HALLS), apiGet("/loot")]);
+    const [list, giveaways] = await Promise.all([apiGet("/loot"), apiGet("/giveaways")]);
     lootById = new Map(list.map((l) => [l.id, l]));
+    giveawaysById = new Map(giveaways.map((g) => [g.id, g]));
     renderVenueMap();
     if (openHallId) renderHallPins();
+    if (leaderboardTab === "giveaways") renderLeaderboardList();
   } catch (e) {
     toast("Could not reach loot-radar -- retrying", true);
   }
@@ -1624,6 +1943,7 @@ async function refreshAll() {
   }
   renderVenueMap();
   await refreshAll();
+  buildCompanyIndex(); // needs lootById/giveawaysById from refreshAll for its live-data backfill
   loadLeaderboard();
   connectEvents();
   loadMe();

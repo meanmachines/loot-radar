@@ -33,6 +33,7 @@ BUILD_TIME = os.environ.get("BUILD_TIME", "unknown")
 
 _create_limiter = db.RateLimiter(max_per_window=20, window_seconds=3600)
 _vote_limiter = db.RateLimiter(max_per_window=120, window_seconds=3600)
+_giveaway_limiter = db.RateLimiter(max_per_window=20, window_seconds=3600)
 
 _DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
@@ -263,6 +264,73 @@ async def rate_loot(loot_id: int, body: RatingIn, request: Request):
     if entry is None:
         raise HTTPException(404, "loot entry not found")
     await _broadcast("loot.updated", entry)
+    return entry
+
+
+# ---------------------------------------------------------------------------
+# Giveaways -- scheduled booth programming (lucky draws, tournament finals,
+# timed prize drops). Separate resource from loot CRUD above, same
+# validation/rate-limit conventions.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/giveaways")
+async def list_giveaways(event_id: str = "gamescom2026"):
+    _valid_event(event_id)
+    return await db.list_giveaways(event_id)
+
+
+@app.post("/giveaways")
+async def create_giveaway(
+    request: Request,
+    hall_id: str,
+    booth_no: str,
+    company_name: str,
+    prize: str,
+    starts_at: float,
+    pin_x: float,
+    pin_y: float,
+    event_id: str = "gamescom2026",
+    notes: Optional[str] = None,
+    submitted_by: Optional[str] = None,
+):
+    _valid_event(event_id)
+    if hall_id not in EVENT_HALL_IDS[event_id]:
+        raise HTTPException(400, "unknown hall_id")
+    if not (0 <= pin_x <= 1 and 0 <= pin_y <= 1):
+        raise HTTPException(400, "pin_x/pin_y must be normalized 0..1")
+    booth_no = booth_no.strip()[:40]
+    company_name = company_name.strip()[:120]
+    prize = prize.strip()[:200]
+    notes = (notes or "").strip()[:500] or None
+    if not booth_no or not company_name or not prize:
+        raise HTTPException(400, "booth_no, company_name and prize are required")
+    # A giveaway more than a year in the past/future is almost certainly a
+    # unit mismatch (e.g. milliseconds sent instead of seconds) rather than
+    # a real schedule entry -- reject early instead of silently storing a
+    # nonsense date no one will ever see on the schedule.
+    if not (time.time() - 86400 * 30 <= starts_at <= time.time() + 86400 * 365):
+        raise HTTPException(400, "starts_at looks wrong -- expected epoch seconds")
+
+    device_id = _device_id(request)
+    if not _giveaway_limiter.allow(_client_key(request)):
+        raise HTTPException(429, "too many giveaway submissions -- try again in a bit")
+
+    entry = await db.create_giveaway(
+        event_id=event_id,
+        hall_id=hall_id,
+        booth_no=booth_no,
+        company_name=company_name,
+        prize=prize,
+        starts_at=starts_at,
+        notes=notes,
+        pin_x=pin_x,
+        pin_y=pin_y,
+        submitted_by=(submitted_by or "").strip()[:60] or None,
+        device_id=device_id,
+        user_id=auth.current_user_id(request),
+    )
+    await _broadcast("giveaway.created", entry)
     return entry
 
 

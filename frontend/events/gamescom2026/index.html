@@ -44,6 +44,7 @@
         <button class="lb-tab active" data-tab="top_loot">Top Loot</button>
         <button class="lb-tab" data-tab="top_halls">Top Halls</button>
         <button class="lb-tab" data-tab="top_finders">Top Scouts</button>
+        <button class="lb-tab" data-tab="giveaways">Giveaways</button>
       </div>
       <div id="leaderboard-list"></div>
     </section>
@@ -128,7 +129,59 @@
     </div>
     <div class="sheet-body" id="booth-sheet-body"></div>
     <div class="sheet-footer">
+      <button class="btn btn-ghost" id="booth-giveaway-btn" style="flex:1">Schedule giveaway</button>
       <button class="btn btn-primary" id="booth-report-btn" style="flex:1">Report loot here</button>
+    </div>
+  </div>
+
+  <!-- Schedule-a-giveaway sheet: booth programming with a real date/time,
+       not a "found here" report. Company field resolves against the
+       searchable index built in app.js (official floor plan + hand-
+       maintained extras + everything already reported through the app) so
+       most of the time no map tap is needed at all. -->
+  <div id="giveaway-sheet">
+    <div class="sheet-header">
+      <button class="icon-btn" id="giveaway-sheet-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div><h2>Schedule a giveaway</h2></div>
+    </div>
+    <div class="sheet-body">
+      <div class="field">
+        <label>Company</label>
+        <input type="text" id="giveaway-form-company" list="giveaway-company-list" placeholder="e.g. Lexar Europe B.V." maxlength="120" />
+        <datalist id="giveaway-company-list"></datalist>
+      </div>
+      <div class="field">
+        <label>Hall</label>
+        <input type="text" id="giveaway-form-hall" readonly placeholder="Pick a matching company above, or tap a booth on the map" />
+      </div>
+      <div class="field">
+        <label>Booth number</label>
+        <input type="text" id="giveaway-form-booth" placeholder="e.g. B-071" maxlength="40" />
+      </div>
+      <button class="btn btn-ghost" id="giveaway-pick-on-map" style="width:100%">Pick booth on map instead</button>
+      <div class="field">
+        <label>Prize</label>
+        <input type="text" id="giveaway-form-prize" placeholder="e.g. PS5 lucky draw" maxlength="200" />
+      </div>
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="giveaway-form-date" />
+      </div>
+      <div class="field">
+        <label>Time</label>
+        <input type="time" id="giveaway-form-time" />
+      </div>
+      <div class="field">
+        <label>Notes (optional)</label>
+        <textarea id="giveaway-form-notes" placeholder="e.g. Must be present, one entry per person" maxlength="500"></textarea>
+      </div>
+      <div class="field-hint" id="giveaway-form-hint">Type a company already on the map to auto-fill its booth.</div>
+    </div>
+    <div class="sheet-footer">
+      <button class="btn btn-ghost" id="giveaway-cancel" style="flex:1">Cancel</button>
+      <button class="btn btn-primary" id="giveaway-submit" style="flex:2">Schedule giveaway</button>
     </div>
   </div>
 
@@ -190,6 +243,7 @@
 </div>
 <script src="icons.js"></script>
 <script src="halls.js"></script>
+<script src="extra-companies.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

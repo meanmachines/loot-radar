@@ -85,6 +85,35 @@ CREATE INDEX IF NOT EXISTS loot_entries_user_idx ON loot_entries(user_id);
 -- that filter in one index scan instead of a bitmap AND across two.
 CREATE INDEX IF NOT EXISTS loot_entries_event_status_idx ON loot_entries(event_id, status);
 
+-- Scheduled booth programming (lucky draws, tournament finals, timed
+-- giveaways) -- distinct from loot_entries because a giveaway is
+-- forward-looking ("this will happen at 17:00") rather than a report of
+-- something already found, and it has no photo/rating/dispute workflow of
+-- its own. Shares hall_id/booth_no/pin_x/pin_y/event_id conventions with
+-- loot_entries so the same booth-matching and map-projection code (see
+-- app.js's boothNumbersMatch/renderVenueHotspots) works unchanged for both.
+CREATE TABLE IF NOT EXISTS giveaways (
+    id SERIAL PRIMARY KEY,
+    event_id TEXT NOT NULL DEFAULT 'gamescom2026',
+    hall_id TEXT NOT NULL,
+    booth_no TEXT NOT NULL,
+    company_name TEXT NOT NULL,
+    prize TEXT NOT NULL,
+    starts_at TIMESTAMPTZ NOT NULL,
+    notes TEXT,
+    pin_x REAL NOT NULL,
+    pin_y REAL NOT NULL,
+    submitted_by TEXT,
+    device_id TEXT NOT NULL,
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS giveaways_event_hall_idx ON giveaways(event_id, hall_id);
+-- Every list read orders by starts_at (soonest first) -- this composite
+-- index lets that ORDER BY come straight off the index instead of a sort.
+CREATE INDEX IF NOT EXISTS giveaways_event_time_idx ON giveaways(event_id, starts_at);
+
 CREATE TABLE IF NOT EXISTS loot_votes (
     id SERIAL PRIMARY KEY,
     loot_id INT NOT NULL REFERENCES loot_entries(id) ON DELETE CASCADE,
@@ -262,6 +291,73 @@ async def create_loot(
         )
     _invalidate_read_caches()
     return _row_to_dict(row)
+
+
+# ---------------------------------------------------------------------------
+# Giveaways -- scheduled booth programming (lucky draws, tournament finals,
+# timed prize drops), separate from loot_entries -- see this module's SCHEMA
+# comment on why.
+# ---------------------------------------------------------------------------
+
+_GIVEAWAY_COLUMNS = """
+    id, event_id, hall_id, booth_no, company_name, prize, notes, pin_x, pin_y,
+    submitted_by, user_id, status,
+    extract(epoch FROM starts_at)::float8 AS starts_at,
+    extract(epoch FROM created_at)::float8 AS created_at
+"""
+
+
+async def list_giveaways(event_id: str) -> list[dict[str, Any]]:
+    # Keyed by a tuple, not the bare event_id string list_active_loot uses --
+    # different key shape means no risk of colliding with that cache entry
+    # even though both live in the same _loot_cache instance.
+    cache_key = ("giveaways", event_id)
+    cached = _loot_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT {_GIVEAWAY_COLUMNS} FROM giveaways
+            WHERE status = 'active' AND event_id = $1
+            ORDER BY starts_at ASC
+            """,
+            event_id,
+        )
+    result = [dict(r) for r in rows]
+    _loot_cache.set(cache_key, result)
+    return result
+
+
+async def create_giveaway(
+    *,
+    event_id: str,
+    hall_id: str,
+    booth_no: str,
+    company_name: str,
+    prize: str,
+    starts_at: float,
+    notes: Optional[str],
+    pin_x: float,
+    pin_y: float,
+    submitted_by: Optional[str],
+    device_id: str,
+    user_id: Optional[int] = None,
+) -> dict[str, Any]:
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            INSERT INTO giveaways
+                (event_id, hall_id, booth_no, company_name, prize, starts_at, notes,
+                 pin_x, pin_y, submitted_by, device_id, user_id)
+            VALUES ($1,$2,$3,$4,$5,to_timestamp($6),$7,$8,$9,$10,$11,$12)
+            RETURNING {_GIVEAWAY_COLUMNS}
+            """,
+            event_id, hall_id, booth_no, company_name, prize, starts_at, notes,
+            pin_x, pin_y, submitted_by, device_id, user_id,
+        )
+    _invalidate_read_caches()
+    return dict(row)
 
 
 # ---------------------------------------------------------------------------
