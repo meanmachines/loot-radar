@@ -330,39 +330,31 @@ button { font-family: inherit; }
 }
 .hallplan-stand.named { fill: var(--primary-soft); stroke: rgba(79, 124, 255, 0.35); }
 .hallplan-stand:active { fill: rgba(79, 124, 255, 0.4); }
-/* Fixed-size badge, same dimensions on every booth regardless of that
-   booth's own size (see appendStandLabels' own comment on why -- this
-   replaces text that used to scale to each box, which read as visually
-   chaotic across a hall with both 2m and 24m stands). Sits ON the
-   booth's fill (not blended into it), so it reads consistently whether
-   the booth underneath is unnamed (plain dark) or named (blue-tinted). */
+/* Compact circular "coin" badge -- fixed size on every booth regardless of
+   that booth's own size (see appendStandLabels' own comment for the full
+   history: per-box scaled text, then a wide pill/tag, both replaced after
+   direct feedback -- this circle is the current shape, deliberately small
+   and "cute" rather than a stretched-out tag). Sits ON the booth's fill
+   (not blended into it), so it reads consistently whether the booth
+   underneath is unnamed (plain dark) or named (blue-tinted). Gold ring,
+   not the app's own brand blue -- this is a LOOT map, and gold is already
+   this app's rank/treasure color everywhere else (leaderboard ranks, venue
+   hotspots), so the ring reads as "this is a marker," like a coin/token. */
 .hallplan-stand-badge {
   fill: rgba(6, 7, 9, 0.94);
-  stroke: rgba(255, 255, 255, 0.16);
-  stroke-width: 0.28;
+  stroke: var(--gold);
+  stroke-width: 0.34;
   pointer-events: none;
   filter: drop-shadow(0 0.3px 0.7px rgba(0, 0, 0, 0.55));
-}
-/* Small marker dot before the number -- reads as a place-pin tag rather
-   than a bare floating chat bubble (real feedback: the plain pill "not
-   good," wanted more definition). Gold, not the app's own brand blue --
-   this is a LOOT map, and gold is already this app's rank/treasure color
-   everywhere else (leaderboard ranks, venue hotspots). */
-.hallplan-stand-badge-dot {
-  fill: var(--gold);
-  pointer-events: none;
 }
 /* Same font stack as the rest of the app (--font) -- the earlier monospace
    choice read as noticeably softer/lower-contrast than the rest of this
    otherwise-crisp UI (real feedback: "washed off low pixel text"), plus a
    thin dark outline (paint-order draws it behind the fill) so every glyph
    stays legible against any booth's own fill color, the same technique a
-   real map app's point labels use. text-anchor is "start", not "middle" --
-   the label now begins right after the marker dot instead of centering on
-   the badge, so the dot+text read as one aligned unit.
-   */
+   real map app's point labels use. */
 .hallplan-stand-label {
-  text-anchor: start;
+  text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
   font-family: var(--font);
