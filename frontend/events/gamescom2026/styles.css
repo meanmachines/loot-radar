@@ -450,6 +450,24 @@ button { font-family: inherit; }
   stroke-width: 0.32;
   paint-order: stroke fill;
 }
+/* "+N" corner marker for a shared/double stand's compact badge (see
+   appendStandLabels) -- solid gold fill (not the badge's own dark/gold-
+   ring look) so it reads as a distinct notification-count bubble sitting
+   ON the badge's corner, not as part of the badge itself. */
+.hallplan-stand-count {
+  fill: var(--gold);
+  stroke: rgba(6, 7, 9, 0.94);
+  stroke-width: 0.3;
+  pointer-events: none;
+}
+.hallplan-stand-count-label {
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  font-family: var(--font);
+  font-weight: 800;
+  fill: #0a0b0d;
+}
 
 #hall-canvas-inner {
   position: absolute; inset: 0;

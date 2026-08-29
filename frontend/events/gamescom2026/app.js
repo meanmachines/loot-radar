@@ -541,7 +541,10 @@ async function renderRealHallPlan(hallId, fileId) {
 
   labelCandidates.sort((a, b) => (b.named - a.named) || b.area - a.area);
 
-  const LABEL_GAP = 0.6;
+  // Padded a bit past the badge's own bounds to also cover the small "+N"
+  // corner marker a compound stand's badge gets (see appendStandLabels),
+  // which sits slightly outside the main rect's own top-right corner.
+  const LABEL_GAP = 1.2;
   const placedRects = [];
   const placed = [];
   for (const c of labelCandidates) {
@@ -616,17 +619,13 @@ function boundsOf(points) {
 const STAND_BADGE_H = 4.0;
 const STAND_BADGE_RADIUS = 1.3;
 const STAND_BADGE_FONT = 2.0;
-// Widened from an earlier 7.6 -- that fit a plain 5-char id ("B-071",
-// ~5.56 units measured live) but was too tight for the "first token +N"
-// compact form a shared/double stand now gets (see fitLabelText), which
-// runs ~7-8 units for a typical "B-070 +1". Still nowhere near the wide
-// stretched-pill design real feedback already rejected once (that was
-// ~13+ units, wide enough to fit a full compound id) -- this only buys
-// enough room for a short badge to stop clipping its own common case. A
-// touch wider still than the first measurement suggested, as headroom for
-// the "+" glyph specifically (not part of the original "B-071" sample the
-// base width was measured from).
-const STAND_BADGE_W = 9.6;
+// "B-071" at font-size 2.0 measures ~5.56 units live -- 8.4 leaves a real
+// single-code id (the vast majority of stands) comfortable margin without
+// ballooning into the wide stretched-pill design real feedback already
+// rejected once. A shared/double stand's SECOND code no longer has to fit
+// in here at all -- see fitLabelText and the small "+N" corner marker
+// appendStandLabels adds instead of ever widening the main badge for it.
+const STAND_BADGE_W = 8.4;
 // Measured live against the real rendered font: "B-071" at font-size 2.0
 // is ~5.56 units wide, and the ellipsis glyph alone is ~2.1 units --
 // surprisingly wide, worth keeping in mind for any future resize (a
@@ -645,15 +644,17 @@ const STAND_BADGE_TEXT_W = STAND_BADGE_W - 1.6;
 function fitLabelText(el, text) {
   // A shared/double stand's real id is two full booth numbers ("B-070
   // C-071") -- character-truncating that whole string reads as a broken/
-  // cut-off label ("B-0...") rather than a deliberate compact one, and
-  // real data shows this isn't a rare edge case (confirmed live: ~15% of
-  // Hall 10's labeled stands are a compound id like this). Showing just
-  // the first token -- itself a real, complete, tappable booth number --
-  // plus a "+1" count reads as an intentional compact badge instead of a
-  // cut-off one; the full compound id still only appears once zoomed in
-  // past HALL_ZOOM_EXPAND_LABELS (see updateLabelVisibility).
-  const tokens = text.split(/\s+/);
-  const base = tokens.length > 1 ? `${tokens[0]} +${tokens.length - 1}` : text;
+  // cut-off label ("B-0...") rather than a deliberate compact one, and real
+  // data shows this isn't a rare edge case (confirmed live: ~15% of Hall
+  // 10's labeled stands are a compound id like this). An earlier attempt
+  // squeezed a "+1" count into this same text ("B-070 +1") -- still too
+  // wide for the compact badge in practice (confirmed live: it just fell
+  // through to the same character truncation anyway), so the count now
+  // lives in its own small corner marker instead (see appendStandLabels)
+  // and this only ever has to fit ONE real, complete, tappable booth
+  // number. The full compound id still only appears once zoomed in past
+  // HALL_ZOOM_EXPAND_LABELS (see updateLabelVisibility).
+  const base = text.split(/\s+/)[0];
   el.textContent = base;
   if (el.getComputedTextLength() <= STAND_BADGE_TEXT_W) return;
   let shown = base;
@@ -670,6 +671,13 @@ function fitLabelText(el, text) {
 // this badge starts showing -- 1 means "visible immediately," higher means
 // "hidden until the user pinch-zooms in that far." Badge+text share one
 // <g> so updateLabelVisibility only has one element per booth to toggle.
+// Size/position for the small "+N" corner marker a compact (non-expanded)
+// shared/double stand's badge gets instead of ever widening for its
+// second code -- sits on the badge's own top-right corner like a
+// notification-count bubble, a familiar "there's more here" pattern.
+const STAND_COUNT_R = 1.55;
+const STAND_COUNT_FONT = 1.55;
+
 function appendStandLabels(svg, cx, cy, nr, revealZoom) {
   const g = svgEl("g", {
     class: "hallplan-label-group", "data-reveal": revealZoom,
@@ -692,6 +700,24 @@ function appendStandLabels(svg, cx, cy, nr, revealZoom) {
   g.appendChild(boothLabel);
   svg.appendChild(g); // must be in the live DOM before fitLabelText can measure it
   fitLabelText(boothLabel, nr);
+
+  const extraCount = nr.split(/\s+/).length - 1;
+  if (extraCount > 0) {
+    const countCx = cx + STAND_BADGE_W / 2;
+    const countCy = cy - STAND_BADGE_H / 2;
+    const countDot = svgEl("circle", {
+      cx: countCx, cy: countCy, r: STAND_COUNT_R,
+      class: "hallplan-stand-count",
+    });
+    const countLabel = svgEl("text", {
+      x: countCx, y: countCy,
+      class: "hallplan-stand-count-label",
+      "font-size": STAND_COUNT_FONT,
+    });
+    countLabel.textContent = `+${extraCount}`;
+    g.appendChild(countDot);
+    g.appendChild(countLabel);
+  }
 }
 
 // Zoom scale at which a badge that had to truncate its real id (mainly
@@ -721,6 +747,8 @@ function updateLabelVisibility() {
     const cx = parseFloat(g.dataset.cx);
     const rect = g.querySelector(".hallplan-stand-badge");
     const text = g.querySelector(".hallplan-stand-label");
+    const countDot = g.querySelector(".hallplan-stand-count");
+    const countLabel = g.querySelector(".hallplan-stand-count-label");
     if (expand) {
       if (text.textContent !== nr) {
         text.textContent = nr;
@@ -729,7 +757,13 @@ function updateLabelVisibility() {
         rect.setAttribute("x", cx - neededW / 2);
         rect.setAttribute("width", neededW);
       }
-    } else if (rect.getAttribute("width") !== String(STAND_BADGE_W)) {
+      // The full compound id is spelled out in one piece above, so the
+      // compact-only "+N" corner marker (if this stand has one) would just
+      // be redundant clutter next to it here.
+      if (countDot) { countDot.style.display = "none"; countLabel.style.display = "none"; }
+    } else {
+      if (countDot) { countDot.style.display = ""; countLabel.style.display = ""; }
+      if (rect.getAttribute("width") === String(STAND_BADGE_W)) return;
       rect.setAttribute("x", cx - STAND_BADGE_W / 2);
       rect.setAttribute("width", STAND_BADGE_W);
       fitLabelText(text, nr);
