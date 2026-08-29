@@ -622,8 +622,11 @@ const STAND_BADGE_FONT = 2.0;
 // runs ~7-8 units for a typical "B-070 +1". Still nowhere near the wide
 // stretched-pill design real feedback already rejected once (that was
 // ~13+ units, wide enough to fit a full compound id) -- this only buys
-// enough room for a short badge to stop clipping its own common case.
-const STAND_BADGE_W = 9.2;
+// enough room for a short badge to stop clipping its own common case. A
+// touch wider still than the first measurement suggested, as headroom for
+// the "+" glyph specifically (not part of the original "B-071" sample the
+// base width was measured from).
+const STAND_BADGE_W = 9.6;
 // Measured live against the real rendered font: "B-071" at font-size 2.0
 // is ~5.56 units wide, and the ellipsis glyph alone is ~2.1 units --
 // surprisingly wide, worth keeping in mind for any future resize (a
