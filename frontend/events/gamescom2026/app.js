@@ -92,6 +92,20 @@ let pendingAction = null; // null | "placing-loot"
 let pendingPin = null; // {x,y} normalized, set right before opening add-sheet
 let leaderboardTab = "top_loot";
 let leaderboardCache = null;
+// Rebuilt from leaderboardCache every time it loads -- id/hall_id -> 1-based
+// rank -- so the venue map's hotspots and hall-detail pins can color a loot
+// entry by where it actually stands on the leaderboard, not just its raw
+// rating. Kept separate from leaderboardCache itself so a lookup during
+// render is a plain Map.get instead of an indexOf scan per pin.
+let lootRankById = new Map();
+let hallRankById = new Map();
+
+function rankTierColor(rank) {
+  if (rank === 1) return "var(--gold)";
+  if (rank === 2) return "var(--silver)";
+  if (rank === 3) return "var(--bronze)";
+  return null;
+}
 
 function lootForHall(hallId) {
   return [...lootById.values()].filter((l) => l.hall_id === hallId && l.status === "active");
@@ -128,13 +142,45 @@ function hallLootBadge(hall, cx, cy, g) {
   // for 2D, apex of the extruded block's top face for 3D).
   const count = hallLootCount(hall.id);
   if (count <= 0) return;
-  const ping = svgEl("circle", { cx, cy, r: 14, class: "hall-badge-ping animate", stroke: hall.color });
+  // A hall in the top 3 of the "Top Halls" leaderboard gets its badge tinted
+  // gold/silver/bronze instead of the hall's own block color -- the badge
+  // itself becomes the "this hall is hot" signal at a glance, not just a
+  // raw count.
+  const rankColor = rankTierColor(hallRankById.get(hall.id));
+  const ringColor = rankColor || hall.color;
+  const ping = svgEl("circle", { cx, cy, r: 14, class: "hall-badge-ping animate", stroke: ringColor });
   g.appendChild(ping);
-  const bg = svgEl("circle", { cx, cy, r: 14, class: "hall-badge-bg", stroke: hall.color });
+  const bg = svgEl("circle", { cx, cy, r: 14, class: "hall-badge-bg" + (rankColor ? " ranked" : ""), stroke: ringColor });
   g.appendChild(bg);
   const countText = svgEl("text", { x: cx, y: cy + 1, class: "hall-badge-count" });
   countText.textContent = String(count);
   g.appendChild(countText);
+}
+
+// Individual glowing dots at each active loot entry's real reported spot,
+// scattered across the hall's own shape on the venue overview -- not just a
+// count in the corner, actual "here is where the loot is" pointers, so a
+// scan of the whole venue shows real hotspots at a glance. `project(px, py)`
+// maps a loot entry's normalized hall-local pin position to venue SVG
+// coordinates -- callers supply flat (2D) or isometric (3D) projection so
+// this one function works for both renderers.
+function renderVenueHotspots(parent, hall, project) {
+  const entries = lootForHall(hall.id);
+  for (const entry of entries) {
+    const p = project(entry.pin_x, entry.pin_y);
+    const tier = rankTierColor(lootRankById.get(entry.id));
+    const dot = svgEl("circle", {
+      cx: p.x, cy: p.y, r: tier ? 5 : 3.2,
+      class: "venue-hotspot" + (tier ? " ranked" : ""),
+      fill: tier || "#ffffff",
+    });
+    dot.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await openHall(hall.id);
+      openLoot(entry.id);
+    });
+    parent.appendChild(dot);
+  }
 }
 
 function renderVenueMap2D() {
@@ -180,6 +226,10 @@ function renderVenueMap2D() {
     g.appendChild(sub);
 
     hallLootBadge(hall, hall.rect.x + hall.rect.w - 6, hall.rect.y + 6, g);
+    renderVenueHotspots(g, hall, (px, py) => ({
+      x: hall.rect.x + px * hall.rect.w,
+      y: hall.rect.y + py * hall.rect.h,
+    }));
     svg.appendChild(g);
   }
 
@@ -253,7 +303,7 @@ function renderVenueMapIso() {
 
   const poly = (points) => points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 
-  for (const { hall, top, base } of blocks) {
+  for (const { hall, top, base, height } of blocks) {
     const g = svgEl("g", { class: "iso-hall-group" });
     g.addEventListener("click", () => openHall(hall.id));
 
@@ -273,6 +323,11 @@ function renderVenueMapIso() {
     g.appendChild(label);
 
     hallLootBadge(hall, top[1].x, top[1].y, g);
+    renderVenueHotspots(g, hall, (px, py) => isoProject(
+      hall.rect.x + px * hall.rect.w,
+      hall.rect.y + py * hall.rect.h,
+      height
+    ));
     svg.appendChild(g);
   }
 }
@@ -702,11 +757,20 @@ function renderHallPins(newId) {
 
   for (const entry of entries) {
     const pin = document.createElement("div");
-    pin.className = "hall-pin" + (entry.status !== "active" ? " hidden-entry" : "") + (entry.id === newId ? " new-pin" : "") + (entry.id === nearestId ? " nearest" : "");
+    const tier = rankTierColor(lootRankById.get(entry.id));
+    pin.className = "hall-pin"
+      + (entry.status !== "active" ? " hidden-entry" : "")
+      + (entry.id === newId ? " new-pin" : "")
+      + (entry.id === nearestId ? " nearest" : "")
+      + (tier ? " ranked" : "");
     pin.style.left = `${entry.pin_x * 100}%`;
     pin.style.top = `${entry.pin_y * 100}%`;
     pin.innerHTML = `<div class="pin-glow"></div>${icon("pin")}`;
-    pin.style.color = entry.quality_count ? goldForRating(entry.avg_quality) : "#fff";
+    // A leaderboard-ranked entry's pin color reflects its RANK (gold/silver/
+    // bronze) so it stands out as a leaderboard-worthy hotspot, not just its
+    // own average rating -- falls back to the existing quality-tier color
+    // for everything not (yet) in the top 3.
+    pin.style.color = tier || (entry.quality_count ? goldForRating(entry.avg_quality) : "#fff");
     pin.addEventListener("click", (e) => { e.stopPropagation(); openLoot(entry.id); });
     inner.appendChild(pin);
   }
@@ -1114,7 +1178,11 @@ document.querySelectorAll(".lb-tab").forEach((tab) => {
 async function loadLeaderboard() {
   try {
     leaderboardCache = await apiGet("/leaderboard");
+    lootRankById = new Map((leaderboardCache.top_loot || []).map((r, i) => [r.id, i + 1]));
+    hallRankById = new Map((leaderboardCache.top_halls || []).map((r, i) => [r.hall_id, i + 1]));
     renderLeaderboardList();
+    renderVenueMap();
+    if (openHallId) renderHallPins();
   } catch (e) {
     toast("Could not load leaderboard", true);
   }
@@ -1252,11 +1320,16 @@ function connectEvents() {
     if (openHallId === entry.hall_id) renderHallPins(entry.id);
     renderVenueMap();
     toast(`New loot: ${entry.company_name}`);
+    loadLeaderboard(); // hall loot_count just changed -- refresh rank tiers
   });
   es.addEventListener("loot.updated", (e) => {
     const entry = JSON.parse(e.data);
     if (entry.event_id && entry.event_id !== EVENT_ID) return;
     applyUpdate(entry);
+    // A vote/rating on this entry can move it (or bump another entry off)
+    // the top_loot ranking -- refresh so hotspot/pin colors stay honest,
+    // not just this one entry's own data.
+    loadLeaderboard();
   });
   es.onerror = () => {
     // EventSource auto-reconnects on its own; nothing to do here beyond
@@ -1551,6 +1624,7 @@ async function refreshAll() {
   }
   renderVenueMap();
   await refreshAll();
+  loadLeaderboard();
   connectEvents();
   loadMe();
   loadProviders();

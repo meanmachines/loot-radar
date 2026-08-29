@@ -177,6 +177,7 @@ button { font-family: inherit; }
   fill: var(--bg-elev);
   stroke-width: 2;
 }
+.hall-badge-bg.ranked { stroke-width: 3; }
 .hall-badge-count {
   font-size: 20px;
   font-weight: 800;
@@ -197,6 +198,21 @@ button { font-family: inherit; }
 @keyframes badge-ping {
   0% { transform: scale(0.8); opacity: 0.55; }
   100% { transform: scale(2.1); opacity: 0; }
+}
+.venue-hotspot {
+  stroke: rgba(10, 11, 13, 0.85);
+  stroke-width: 1;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.6));
+  animation: hotspot-pulse 2s ease-in-out infinite;
+  cursor: pointer;
+}
+.venue-hotspot.ranked {
+  stroke-width: 1.4;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+@keyframes hotspot-pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 0.45; }
 }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
@@ -367,6 +383,7 @@ button { font-family: inherit; }
 }
 .hall-pin.hidden-entry .pin-glow { background: radial-gradient(circle, var(--danger) 0%, transparent 70%); }
 .hall-pin.nearest .pin-glow { background: radial-gradient(circle, var(--success) 0%, transparent 70%); opacity: 0.7; }
+.hall-pin.ranked .pin-glow { background: radial-gradient(circle, currentColor 0%, transparent 70%); opacity: 0.75; }
 .hall-pin svg { position: relative; width: 30px; height: 30px; filter: drop-shadow(0 0 4px rgba(0,0,0,0.7)); }
 @keyframes pin-breathe {
   0%, 100% { opacity: 0.3; transform: scale(0.88); }
