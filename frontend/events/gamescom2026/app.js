@@ -30,7 +30,13 @@ function deviceId() {
 
 async function apiGet(path) {
   const sep = path.includes("?") ? "&" : "?";
-  const res = await fetch(`${API_BASE}${path}${sep}event_id=${EVENT_ID}`);
+  // Real bug found live: GET /my/loot requires this header server-side
+  // (see main.py's _device_id) but this helper never sent it, so "My loot
+  // finds" in the Account sheet always failed to load. Harmless to send on
+  // every GET -- endpoints that don't need it just ignore it.
+  const res = await fetch(`${API_BASE}${path}${sep}event_id=${EVENT_ID}`, {
+    headers: { "X-Device-Id": deviceId() },
+  });
   if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
   return res.json();
 }
