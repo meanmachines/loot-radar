@@ -573,7 +573,7 @@ function boundsOf(points) {
 // a big one -- reads as one consistent wayfinding layer across the whole
 // map, the way a real map's point labels do, instead of text that's
 // literally sized by geography.
-const STAND_BADGE_W = 9;
+const STAND_BADGE_W = 10.5;
 const STAND_BADGE_H = 3.6;
 const STAND_BADGE_FONT = 2.3;
 // Real text usable inside the badge, minus side padding so a full-width
