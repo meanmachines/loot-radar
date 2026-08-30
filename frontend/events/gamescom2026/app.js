@@ -658,6 +658,9 @@ const STAND_BADGE_FONT = 2.0;
 // rejected once. A shared/double stand's SECOND code no longer has to fit
 // in here at all -- see fitLabelText and the small "+N" corner marker
 // appendStandLabels adds instead of ever widening the main badge for it.
+// Only used standalone now (an unnamed stand's bare code, or the floor for
+// how small a named card's own corner badge below can get) -- see
+// STAND_CARD_BADGE_W's own comment for why the on-card one is smaller.
 const STAND_BADGE_W = 8.4;
 // Measured live against the real rendered font: "B-071" at font-size 2.0
 // is ~5.56 units wide, and the ellipsis glyph alone is ~2.1 units --
@@ -666,15 +669,31 @@ const STAND_BADGE_W = 8.4;
 // left to shrink to and collapses every badge to the same text).
 const STAND_BADGE_TEXT_W = STAND_BADGE_W - 1.6;
 
-// Shrinks the label to however many characters actually fit the badge,
-// measured with the real rendered font via getComputedTextLength() --
-// robust to any input length/width instead of a guessed character budget,
-// so a malformed or unexpectedly long code just truncates safely instead
-// of overflowing the badge. Requires `el` to already be attached to a
+// The corner badge on a NAMED stand's card -- deliberately smaller than
+// the standalone badge above. Real bug found live: using the same fixed
+// size for both meant this corner badge ate a third or more of a short/
+// thin card's own footprint, overlapping the company name centered on
+// that same card (confirmed live -- a dark bar visibly sliced across
+// "Coffee Stain Publishing"). A corner tag only ever needs to read as "a
+// code lives here," not carry the same standalone legibility a badge with
+// nothing else nearby does -- it can afford to be meaningfully smaller.
+const STAND_CARD_BADGE_W = 5.4;
+const STAND_CARD_BADGE_H = 2.5;
+const STAND_CARD_BADGE_RADIUS = 0.9;
+const STAND_CARD_BADGE_FONT = 1.3;
+const STAND_CARD_BADGE_TEXT_W = STAND_CARD_BADGE_W - 1.0;
+
+// Shrinks the label to however many characters actually fit its own
+// budget, measured with the real rendered font via getComputedTextLength()
+// -- robust to any input length/width instead of a guessed character
+// budget, so a malformed or unexpectedly long code just truncates safely
+// instead of overflowing. maxW defaults to the standalone badge's own
+// budget; appendCodeBadge passes the smaller on-card one explicitly for a
+// named stand's corner chip. Requires `el` to already be attached to a
 // laid-out (visible) SVG -- getComputedTextLength() returns 0 on a
 // detached/hidden element, which is why this runs AFTER appendStandLabels
 // appends its <g>, not before.
-function fitLabelText(el, text) {
+function fitLabelText(el, text, maxW) {
   // A shared/double stand's real id is two full booth numbers ("B-070
   // C-071") -- character-truncating that whole string reads as a broken/
   // cut-off label ("B-0...") rather than a deliberate compact one, and real
@@ -685,13 +704,13 @@ function fitLabelText(el, text) {
   // through to the same character truncation anyway), so the count now
   // lives in its own small corner marker instead (see appendStandLabels)
   // and this only ever has to fit ONE real, complete, tappable booth
-  // number. The full compound id still only appears once zoomed in past
-  // HALL_ZOOM_EXPAND_LABELS (see updateLabelVisibility).
+  // number.
+  const budget = maxW == null ? STAND_BADGE_TEXT_W : maxW;
   const base = text.split(/\s+/)[0];
   el.textContent = base;
-  if (el.getComputedTextLength() <= STAND_BADGE_TEXT_W) return;
+  if (el.getComputedTextLength() <= budget) return;
   let shown = base;
-  while (shown.length > 1 && el.getComputedTextLength() > STAND_BADGE_TEXT_W) {
+  while (shown.length > 1 && el.getComputedTextLength() > budget) {
     shown = shown.slice(0, -1);
     el.textContent = shown + "…";
   }
@@ -723,6 +742,11 @@ function fitCardName(el, name, maxW) {
 // notification-count bubble, a familiar "there's more here" pattern.
 const STAND_COUNT_R = 1.55;
 const STAND_COUNT_FONT = 1.55;
+// Scaled down to match the smaller on-card badge (see STAND_CARD_BADGE_W's
+// own comment) -- the full-size dot looked oversized stamped on a corner
+// tag already shrunk to fit a small card.
+const STAND_CARD_COUNT_R = 1.05;
+const STAND_CARD_COUNT_FONT = 1.05;
 
 // Appends the small booth-code badge (+ its own "+N" corner count marker,
 // if this is a shared/double stand) into an already-created label group,
@@ -731,13 +755,21 @@ const STAND_COUNT_FONT = 1.55;
 // stand's own centroid, same spot this badge always used to live at alone.
 // bare: unnamed stands have no card underneath them worth a chip on top of
 // -- just the code itself, direct on the light fill (matching the Design
-// Spec's unnamed-booth treatment), no dark pill.
-function appendCodeBadge(g, cx, cy, nr, bare) {
+// Spec's unnamed-booth treatment), no dark pill. small: a named card's own
+// corner badge, sized down from the standalone default (see
+// STAND_CARD_BADGE_W's own comment for why).
+function appendCodeBadge(g, cx, cy, nr, bare, small) {
+  const w = small ? STAND_CARD_BADGE_W : STAND_BADGE_W;
+  const h = small ? STAND_CARD_BADGE_H : STAND_BADGE_H;
+  const radius = small ? STAND_CARD_BADGE_RADIUS : STAND_BADGE_RADIUS;
+  const font = small ? STAND_CARD_BADGE_FONT : STAND_BADGE_FONT;
+  const textW = small ? STAND_CARD_BADGE_TEXT_W : STAND_BADGE_TEXT_W;
+
   if (!bare) {
     const badge = svgEl("rect", {
-      x: cx - STAND_BADGE_W / 2, y: cy - STAND_BADGE_H / 2,
-      width: STAND_BADGE_W, height: STAND_BADGE_H,
-      rx: STAND_BADGE_RADIUS,
+      x: cx - w / 2, y: cy - h / 2,
+      width: w, height: h,
+      rx: radius,
       class: "hallplan-stand-badge",
     });
     g.appendChild(badge);
@@ -748,23 +780,25 @@ function appendCodeBadge(g, cx, cy, nr, bare) {
   const boothLabel = svgEl("text", {
     x: cx, y: cy,
     class: "hallplan-stand-label" + (bare ? " bare" : ""),
-    "font-size": STAND_BADGE_FONT,
+    "font-size": font,
   });
   g.appendChild(boothLabel);
-  fitLabelText(boothLabel, nr);
+  fitLabelText(boothLabel, nr, textW);
 
   const extraCount = nr.split(/\s+/).length - 1;
   if (extraCount > 0) {
-    const countCx = cx + STAND_BADGE_W / 2;
-    const countCy = cy - STAND_BADGE_H / 2;
+    const countR = small ? STAND_CARD_COUNT_R : STAND_COUNT_R;
+    const countFont = small ? STAND_CARD_COUNT_FONT : STAND_COUNT_FONT;
+    const countCx = cx + w / 2;
+    const countCy = cy - h / 2;
     const countDot = svgEl("circle", {
-      cx: countCx, cy: countCy, r: STAND_COUNT_R,
+      cx: countCx, cy: countCy, r: countR,
       class: "hallplan-stand-count",
     });
     const countLabel = svgEl("text", {
       x: countCx, y: countCy,
       class: "hallplan-stand-count-label",
-      "font-size": STAND_COUNT_FONT,
+      "font-size": countFont,
     });
     countLabel.textContent = `+${extraCount}`;
     g.appendChild(countDot);
@@ -775,9 +809,12 @@ function appendCodeBadge(g, cx, cy, nr, bare) {
 // A named stand's card only carries the small corner code badge too when
 // it's big enough for that corner not to swallow most of the card -- a
 // stand right at the labeling cutoff shouldn't get a badge stamped over
-// half its own name.
-const STAND_CARD_BADGE_MIN_W = STAND_BADGE_W * 1.35;
-const STAND_CARD_BADGE_MIN_H = STAND_BADGE_H * 1.6;
+// half its own name. Measured against the smaller on-card badge itself,
+// not the standalone one -- real feedback found the previous thresholds
+// (sized off the bigger standalone badge) still let the badge collide
+// with the name on a short card that technically cleared them.
+const STAND_CARD_BADGE_MIN_W = STAND_CARD_BADGE_W * 1.8;
+const STAND_CARD_BADGE_MIN_H = STAND_CARD_BADGE_H * 2.6;
 
 // c: one placed label candidate from renderRealHallPlan's own collision
 // pass -- {stand, cx, cy, boxW, boxH, named}. revealZoom: the hall-canvas
@@ -821,7 +858,7 @@ function appendStandLabels(svg, c, revealZoom) {
     fitCardName(nameLabel, stand.names[0], w - STAND_CARD_PAD_X * 2);
 
     if (w >= STAND_CARD_BADGE_MIN_W && h >= STAND_CARD_BADGE_MIN_H) {
-      appendCodeBadge(g, cx + w / 2 - STAND_BADGE_W / 2 - 0.3, cy + h / 2 - STAND_BADGE_H / 2 - 0.3, nr);
+      appendCodeBadge(g, cx + w / 2 - STAND_CARD_BADGE_W / 2 - 0.3, cy + h / 2 - STAND_CARD_BADGE_H / 2 - 0.3, nr, false, true);
     }
   } else {
     svg.appendChild(g);
